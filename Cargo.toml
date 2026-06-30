@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-pumicite = { path = "../pumicite" }
+pumicite = { git = "https://github.com/dust-engine/pumicite" }
 ash = { git = "https://github.com/0xbeefd1ed/ash", branch = "meta" }
 
 # Apple-only dependencies (for MetalFX backend).
