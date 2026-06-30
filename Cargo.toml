@@ -7,5 +7,11 @@ edition = "2024"
 pumicite = { path = "../pumicite" }
 ash = { git = "https://github.com/0xbeefd1ed/ash", branch = "meta" }
 
+# Apple-only dependencies (for MetalFX backend).
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = { version = "0.6" }
+objc2-metal = { version = "0.3.2" }
+objc2-metal-fx = { version = "0.3.2" }
+
 [patch."https://github.com/ash-rs/ash.git"]
 ash = { git = "https://github.com/0xbeefd1ed/ash", branch = "meta" }

@@ -1,5 +1,8 @@
 use ash::{VkResult, vk::{self, Flags}, vk_bitflags_wrapped};
 
+#[cfg(target_vendor = "apple")]
+pub mod metalfx;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SuperResolutionEngine(u32);
 
@@ -42,6 +45,20 @@ impl SuperResolutionImageUseFlags {
     pub const IGNORE_HISTORY_MASK: Self = Self(0x0000_0020);
     /// Used as an exposure scale image during a dispatch.
     pub const EXPOSURE_SCALE: Self = Self(0x0000_0040);
+    /// Used as a diffuse albedo G-buffer image by a denoising engine.
+    pub const DIFFUSE_ALBEDO: Self = Self(0x0000_0080);
+    /// Used as a specular albedo G-buffer image by a denoising engine.
+    pub const SPECULAR_ALBEDO: Self = Self(0x0000_0100);
+    /// Used as a world-space normal G-buffer image by a denoising engine.
+    pub const NORMAL: Self = Self(0x0000_0200);
+    /// Used as a roughness G-buffer image by a denoising engine.
+    pub const ROUGHNESS: Self = Self(0x0000_0400);
+    /// Used as a specular hit-distance image by a denoising engine.
+    pub const SPECULAR_HIT_DISTANCE: Self = Self(0x0000_0800);
+    /// Used as a denoise strength mask image by a denoising engine.
+    pub const DENOISE_STRENGTH_MASK: Self = Self(0x0000_1000);
+    /// Used as a transparency overlay image by a denoising engine.
+    pub const TRANSPARENCY_OVERLAY: Self = Self(0x0000_2000);
 }
 
 
@@ -118,8 +135,8 @@ impl SuperResolutionDispatchFlags {
 }
 
 const MAX_SUPER_RESOLUTION_QUEUE_FAMILY_COUNT: usize = 8;
-const MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT: usize = 8;
-const MAX_SUPER_RESOLUTION_NAME_SIZE: usize = 8;
+const MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT: usize = 16;
+const MAX_SUPER_RESOLUTION_NAME_SIZE: usize = 32;
 
 pub struct SuperResolutionEngineProperties {
     pub vendor_id: u32,
@@ -135,6 +152,7 @@ pub struct SuperResolutionEngineProperties {
     pub max_destination_region_size: vk::Extent2D,
     pub max_supported_concurrent_session_dispatches: u32,
 }
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScalingFactor {
     pub numerator: u32,
     pub denominator: u32
@@ -167,6 +185,27 @@ pub struct SuperResolutionSessionCreateInfo {
     pub ignore_history_mask_format: vk::Format,
     /// Format of the 1x1 exposure scale image, or [`vk::Format::UNDEFINED`] if none.
     pub exposure_scale_format: vk::Format,
+    /// Format of the diffuse albedo G-buffer image (denoising engines only), or
+    /// [`vk::Format::UNDEFINED`] if none.
+    pub diffuse_albedo_format: vk::Format,
+    /// Format of the specular albedo G-buffer image (denoising engines only), or
+    /// [`vk::Format::UNDEFINED`] if none.
+    pub specular_albedo_format: vk::Format,
+    /// Format of the world-space normal G-buffer image (denoising engines only),
+    /// or [`vk::Format::UNDEFINED`] if none.
+    pub normal_format: vk::Format,
+    /// Format of the roughness G-buffer image (denoising engines only), or
+    /// [`vk::Format::UNDEFINED`] if none.
+    pub roughness_format: vk::Format,
+    /// Format of the specular hit-distance image (denoising engines only), or
+    /// [`vk::Format::UNDEFINED`] if none.
+    pub specular_hit_distance_format: vk::Format,
+    /// Format of the denoise strength mask image (denoising engines only), or
+    /// [`vk::Format::UNDEFINED`] if none.
+    pub denoise_strength_mask_format: vk::Format,
+    /// Format of the transparency overlay image (denoising engines only), or
+    /// [`vk::Format::UNDEFINED`] if none.
+    pub transparency_overlay_format: vk::Format,
     /// Size of the destination region, which may be smaller than the
     /// destination image.
     pub destination_region_size: vk::Extent2D,
@@ -225,7 +264,31 @@ pub struct SuperResolutionDescriptorHeapRanges {
 pub trait SuperResolutionPhysicalDevice {
     fn enumerate_super_resolution_engines(
         &self,
+    ) -> VkResult<Vec<SuperResolutionEngine>>;
+
+    fn get_super_resolution_engine_properties(
+        &self,
+        engine: SuperResolutionEngine,
+    ) -> SuperResolutionEngineProperties;
+
+    /// Enumerates the image properties supported by a super resolution `engine`
+    /// for the given `image_use`.
+    fn get_super_resolution_engine_supported_image_properties(
+        &self,
+        engine: SuperResolutionEngine,
+        image_use: SuperResolutionImageUseFlags,
+    ) -> VkResult<Vec<SuperResolutionImageProperties>>;
+
+}
+
+impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice {
+        fn enumerate_super_resolution_engines(
+        &self,
     ) -> VkResult<Vec<SuperResolutionEngine>> {
+        #[cfg(target_vendor = "apple")]
+        {
+            return Ok(metalfx::ENGINES.to_vec());
+        }
         todo!()
     }
 
@@ -233,6 +296,10 @@ pub trait SuperResolutionPhysicalDevice {
         &self,
         engine: SuperResolutionEngine,
     ) -> SuperResolutionEngineProperties {
+        #[cfg(target_vendor = "apple")]
+        {
+            return metalfx::engine_properties(self, engine);
+        }
         todo!()
     }
 
@@ -243,13 +310,12 @@ pub trait SuperResolutionPhysicalDevice {
         engine: SuperResolutionEngine,
         image_use: SuperResolutionImageUseFlags,
     ) -> VkResult<Vec<SuperResolutionImageProperties>> {
+        #[cfg(target_vendor = "apple")]
+        {
+            return Ok(metalfx::engine_supported_image_properties(engine, image_use));
+        }
         todo!()
     }
-
-}
-
-impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice {
-
 }
 
 pub trait SuperResolutionDevice {
@@ -258,22 +324,38 @@ pub trait SuperResolutionDevice {
     fn get_super_resolution_session_memory_requirements(
         &self,
         session_create_info: &SuperResolutionSessionCreateInfo,
-    ) -> VkResult<Vec<SuperResolutionSessionMemoryRequirements>> {
-        todo!()
-    }
+    ) -> VkResult<Vec<SuperResolutionSessionMemoryRequirements>>;
 
     /// Queries the descriptor heap range requirements of a super resolution
     /// session that would be created with `session_create_info`.
     fn get_super_resolution_session_descriptor_heap_ranges(
         &self,
         session_create_info: &SuperResolutionSessionCreateInfo,
-    ) -> VkResult<SuperResolutionDescriptorHeapRanges> {
-        todo!()
-    }
+    ) -> VkResult<SuperResolutionDescriptorHeapRanges>;
 }
 
 impl SuperResolutionDevice for pumicite::Device {
+    fn get_super_resolution_session_memory_requirements(
+        &self,
+        _session_create_info: &SuperResolutionSessionCreateInfo,
+    ) -> VkResult<Vec<SuperResolutionSessionMemoryRequirements>> {
+        #[cfg(target_vendor = "apple")]
+        {
+            return Ok(metalfx::session_memory_requirements());
+        }
+        todo!()
+    }
 
+    fn get_super_resolution_session_descriptor_heap_ranges(
+        &self,
+        _session_create_info: &SuperResolutionSessionCreateInfo,
+    ) -> VkResult<SuperResolutionDescriptorHeapRanges> {
+        #[cfg(target_vendor = "apple")]
+        {
+            return Ok(metalfx::session_descriptor_heap_ranges());
+        }
+        todo!()
+    }
 }
 
 /// An instance of a specific scaler implementation, created from a
@@ -286,6 +368,9 @@ impl SuperResolutionDevice for pumicite::Device {
 /// and be initialized.
 pub struct SuperResolutionSession {
     device: pumicite::Device,
+    /// The backing MetalFX scaler. Retained for the session's lifetime.
+    #[cfg(target_vendor = "apple")]
+    scaler: metalfx::Scaler,
 }
 
 impl pumicite::HasDevice for SuperResolutionSession {
@@ -300,14 +385,22 @@ impl SuperResolutionSession {
         pipeline_cache: &pumicite::pipeline::PipelineCache,
         create_info: &SuperResolutionSessionCreateInfo,
     ) -> VkResult<SuperResolutionSession> {
+        #[cfg(target_vendor = "apple")]
+        {
+            return metalfx::create_session(pipeline_cache, create_info);
+        }
         todo!()
     }
 
     /// Attaches device memory to this session's internal bind points.
     pub fn bind_memory(
         &self,
-        bind_infos: &[BindSuperResolutionSessionMemoryInfo],
+        _bind_infos: &[BindSuperResolutionSessionMemoryInfo],
     ) -> VkResult<()> {
+        #[cfg(target_vendor = "apple")]
+        {
+            return Ok(());
+        }
         todo!()
     }
 
@@ -319,6 +412,14 @@ impl SuperResolutionSession {
         destination_region_size: vk::Extent2D,
         source_region_size: vk::Extent2D,
     ) -> VkResult<Vec<(f32, f32)>> {
+        #[cfg(target_vendor = "apple")]
+        {
+            return metalfx::recommended_jitter_pattern(
+                self,
+                destination_region_size,
+                source_region_size,
+            );
+        }
         todo!()
     }
 }
@@ -379,6 +480,32 @@ pub struct SuperResolutionDispatchExposureInfo<'a> {
     pub exposure_scale_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
 }
 
+/// G-buffer inputs for a denoising super resolution dispatch.
+///
+/// Only used by denoising engines (e.g. the MetalFX temporal denoised scaler).
+/// The diffuse/specular albedo, normal, and roughness images are required; the
+/// remaining images are optional and may be `None`.
+pub struct SuperResolutionDispatchDenoiseInfo<'a> {
+    /// Diffuse albedo G-buffer image.
+    pub diffuse_albedo_image_info: &'a SuperResolutionImageInfo<'a>,
+    /// Specular albedo G-buffer image.
+    pub specular_albedo_image_info: &'a SuperResolutionImageInfo<'a>,
+    /// World-space normal G-buffer image.
+    pub normal_image_info: &'a SuperResolutionImageInfo<'a>,
+    /// Roughness G-buffer image.
+    pub roughness_image_info: &'a SuperResolutionImageInfo<'a>,
+    /// Specular hit-distance image, or `None` if unused.
+    pub specular_hit_distance_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    /// Denoise strength mask image, or `None` if unused.
+    pub denoise_strength_mask_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    /// Transparency overlay image, or `None` if unused.
+    pub transparency_overlay_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    /// Column-major world-to-view (camera) matrix.
+    pub world_to_view_matrix: [[f32; 4]; 4],
+    /// Column-major view-to-clip (projection) matrix.
+    pub view_to_clip_matrix: [[f32; 4]; 4],
+}
+
 /// Parameters driving a single super resolution upscaling dispatch.
 pub struct SuperResolutionDispatchInfo<'a> {
     /// Index of the dispatch. Must be less than the session's
@@ -403,6 +530,8 @@ pub struct SuperResolutionDispatchInfo<'a> {
     pub motion_info: Option<&'a SuperResolutionDispatchMotionInfo<'a>>,
     /// Exposure information, or `None` to use auto/default exposure.
     pub exposure_info: Option<&'a SuperResolutionDispatchExposureInfo<'a>>,
+    /// G-buffer information, or `None` if the engine does not denoise.
+    pub denoise_info: Option<&'a SuperResolutionDispatchDenoiseInfo<'a>>,
     /// Offset into the bound resource descriptor heap reserved for the
     /// session's internal descriptors.
     pub resource_descriptor_heap_offset: vk::DeviceSize,
@@ -414,20 +543,36 @@ pub struct SuperResolutionDispatchInfo<'a> {
 pub trait SuperResolutionCommandEncoder {
     /// Records initialization of a super resolution `session` into the command
     /// buffer.
-    fn initialize_super_resolution_session(&mut self, session: &SuperResolutionSession) {
-        todo!()
-    }
+    fn initialize_super_resolution_session(&mut self, session: &SuperResolutionSession);
 
     /// Records a super resolution upscaling dispatch into the command buffer.
     fn dispatch_super_resolution(
         &mut self,
         session: &SuperResolutionSession,
         dispatch_info: &SuperResolutionDispatchInfo,
-    ) {
-        todo!()
-    }
+    );
 }
 
 impl SuperResolutionCommandEncoder for pumicite::command::CommandEncoder<'_> {
+    fn initialize_super_resolution_session(&mut self, session: &SuperResolutionSession) {
+        #[cfg(target_vendor = "apple")]
+        {
+            metalfx::initialize_session(self, session);
+            return;
+        }
+        todo!()
+    }
 
+    fn dispatch_super_resolution(
+        &mut self,
+        session: &SuperResolutionSession,
+        dispatch_info: &SuperResolutionDispatchInfo,
+    ) {
+        #[cfg(target_vendor = "apple")]
+        {
+            metalfx::dispatch(self, session, dispatch_info);
+            return;
+        }
+        todo!()
+    }
 }
