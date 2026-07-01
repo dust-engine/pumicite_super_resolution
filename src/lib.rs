@@ -314,6 +314,33 @@ pub trait SuperResolutionPhysicalDevice {
         image_use: SuperResolutionImageUseFlags,
     ) -> VkResult<Vec<SuperResolutionImageProperties>>;
 
+    /// Vulkan device extensions that must be enabled at device-creation time on
+    /// this physical device for a super resolution backend to initialize.
+    fn super_resolution_required_device_extensions(
+        &self,
+        application_info: &SuperResolutionApplicationInfo<'_>,
+    ) -> Vec<&'static CStr>;
+}
+
+/// Vulkan instance extensions that must be enabled at instance-creation time for
+/// a super resolution backend to initialize.
+pub fn super_resolution_required_instance_extensions(
+    application_info: &SuperResolutionApplicationInfo<'_>,
+) -> Vec<&'static CStr> {
+    #[cfg(target_vendor = "apple")]
+    {
+        let _ = application_info;
+        return Vec::new();
+    }
+    #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+    {
+        return dlss::required_instance_extensions(application_info);
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = application_info;
+        Vec::new()
+    }
 }
 
 impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice {
@@ -366,6 +393,26 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
         }
         #[allow(unreachable_code)]
         Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
+    }
+
+    fn super_resolution_required_device_extensions(
+        &self,
+        application_info: &SuperResolutionApplicationInfo<'_>,
+    ) -> Vec<&'static CStr> {
+        #[cfg(target_vendor = "apple")]
+        {
+            let _ = application_info;
+            return vec![ash::ext::metal_objects::NAME];
+        }
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return dlss::required_device_extensions(self, application_info);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = application_info;
+            Vec::new()
+        }
     }
 }
 

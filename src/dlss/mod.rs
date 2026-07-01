@@ -343,6 +343,76 @@ fn check_dlss_rr_available(
         == sys::NVSDK_NGX_FeatureSupportResult_Supported
 }
 
+pub(crate) fn required_instance_extensions(
+    app_info: &crate::SuperResolutionApplicationInfo<'_>,
+) -> Vec<&'static CStr> {
+    let app_data = encode_app_data_path(app_info.application_data_path);
+    let info = sys::NVSDK_NGX_FeatureDiscoveryInfo::new(
+        &app_data,
+        app_info.project_id,
+        app_info.engine_version,
+    );
+    let mut count: u32 = 0;
+    let mut properties: *mut vk::ExtensionProperties = ptr::null_mut();
+    // SAFETY: `info` (and everything it points at) outlives the call; NGX writes
+    // `count`/`properties` only on success and the returned array is static.
+    let result = unsafe {
+        sys::NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements(
+            &info,
+            &mut count,
+            &mut properties,
+        )
+    };
+    if result.result().is_err() || properties.is_null() {
+        return Vec::new();
+    }
+    let props = unsafe { std::slice::from_raw_parts(properties, count as usize) };
+    props
+        .iter()
+        .map(|ext| unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) })
+        .collect()
+}
+
+pub(crate) fn required_device_extensions(
+    physical_device: &PhysicalDevice,
+    app_info: &crate::SuperResolutionApplicationInfo<'_>,
+) -> Vec<&'static CStr> {
+    let driver = physical_device
+        .properties()
+        .get::<vk::PhysicalDeviceDriverProperties>();
+    if driver.driver_id != vk::DriverId::NVIDIA_PROPRIETARY {
+        return Vec::new();
+    }
+    let app_data = encode_app_data_path(app_info.application_data_path);
+    let info = sys::NVSDK_NGX_FeatureDiscoveryInfo::new(
+        &app_data,
+        app_info.project_id,
+        app_info.engine_version,
+    );
+    let mut count: u32 = 0;
+    let mut properties: *mut vk::ExtensionProperties = ptr::null_mut();
+    // SAFETY: instance + physical device are valid; `info` outlives the call;
+    // NGX writes `count`/`properties` only on success and the array is static.
+    let result = unsafe {
+        sys::NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(
+            physical_device.instance().handle(),
+            physical_device.vk_handle(),
+            &info,
+            &mut count,
+            &mut properties,
+        )
+    };
+    if result.result().is_err() || properties.is_null() {
+        tracing::warn!(target: "ngx", "GetFeatureDeviceExtensionRequirements failed: {result:?}");
+        return Vec::new();
+    }
+    let props = unsafe { std::slice::from_raw_parts(properties, count as usize) };
+    props
+        .iter()
+        .map(|ext| unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) })
+        .collect()
+}
+
 /// Creates a DLSS-RR feature on `cmd_buffer` (which must be recording).
 fn create_dlssd_feature(
     cmd_buffer: vk::CommandBuffer,
@@ -978,14 +1048,18 @@ pub(crate) fn dispatch(
 }
 
 /// Implements [`crate::SuperResolutionSession::recommended_jitter_pattern`].
-/// NGX exposes no jitter API, so this follows the same Halton(2, 3) pattern as
-/// MetalFX, with a length that scales with the upscale ratio.
+/// NGX exposes no jitter API, so this returns a Halton(2, 3) sequence.
+///
+/// DLSS-RR guidance: "there is no reason to limit the number of samples; use of
+/// many more jitter positions (at least 32) is also highly recommended." So the
+/// phase count is the DLSS super-resolution base of `8 * ratio²`, floored at the
+/// DLSS-RR minimum of 32.
 pub(crate) fn recommended_jitter_pattern(
     destination_region_size: vk::Extent2D,
     source_region_size: vk::Extent2D,
 ) -> VkResult<Vec<(f32, f32)>> {
     let scale = destination_region_size.width as f32 / source_region_size.width.max(1) as f32;
-    let phase_count = ((8.0 * scale * scale) as u32).max(1);
+    let phase_count = ((8.0 * scale * scale) as u32).max(32);
     Ok((1..=phase_count)
         .map(|i| (halton(i, 2) - 0.5, halton(i, 3) - 0.5))
         .collect())

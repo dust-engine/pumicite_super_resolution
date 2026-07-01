@@ -15,16 +15,23 @@ cc_library(
     ],
 )
 
-# Re-export the NGX import library and the runtime-DLL filegroup so consumers
-# depend on this module (`@pumicite_super_resolution//:dlss`,
-# `@pumicite_super_resolution//:dlssd_runtime`) without referencing the internal
-# `@dlss` repo directly.
-alias(
-    name = "dlss",
-    actual = "@dlss//:dlss",
+# Native link dependencies for the crate's active backend
+cc_library(
+    name = "backend",
+    deps = select({
+        "@platforms//os:macos": [],
+        "//conditions:default": [
+            ":dlss_helpers",
+            "@dlss//:dlss",
+        ],
+    }),
 )
 
-alias(
-    name = "dlssd_runtime",
-    actual = "@dlss//:dlssd_runtime",
+# Runtime DLLS
+filegroup(
+    name = "backend_runtime",
+    srcs = select({
+        "@platforms//os:macos": [],
+        "//conditions:default": ["@dlss//:dlssd_runtime"],
+    }),
 )

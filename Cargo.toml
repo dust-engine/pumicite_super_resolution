@@ -9,7 +9,7 @@ default = ["dlss"]
 dlss = ["dep:tracing", "dep:runfiles"]
 
 [dependencies]
-pumicite = { git = "https://github.com/dust-engine/pumicite.git", rev = "ee3c41179c414dc20b0085ac58627d72e71f8011" }
+pumicite = { git = "https://github.com/dust-engine/pumicite.git", rev = "4cb2612d84bcb80c851eb0f316afb47688ad40a3" }
 ash = { git = "https://github.com/0xbeefd1ed/ash", branch = "meta" }
 tracing = { version = "0.1", optional = true }
 runfiles = { version = "0.2", optional = true }

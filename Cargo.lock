@@ -679,7 +679,7 @@ dependencies = [
 [[package]]
 name = "pumicite"
 version = "0.1.0"
-source = "git+https://github.com/dust-engine/pumicite.git?rev=ee3c41179c414dc20b0085ac58627d72e71f8011#ee3c41179c414dc20b0085ac58627d72e71f8011"
+source = "git+https://github.com/dust-engine/pumicite.git?rev=4cb2612d84bcb80c851eb0f316afb47688ad40a3#4cb2612d84bcb80c851eb0f316afb47688ad40a3"
 dependencies = [
  "ash",
  "bitvec",
@@ -688,6 +688,8 @@ dependencies = [
  "event-listener",
  "glam",
  "log",
+ "objc2",
+ "objc2-metal",
  "pin-project-lite",
  "portable-atomic",
  "pumicite_types",
@@ -720,7 +722,7 @@ dependencies = [
 [[package]]
 name = "pumicite_types"
 version = "0.1.0"
-source = "git+https://github.com/dust-engine/pumicite.git?rev=ee3c41179c414dc20b0085ac58627d72e71f8011#ee3c41179c414dc20b0085ac58627d72e71f8011"
+source = "git+https://github.com/dust-engine/pumicite.git?rev=4cb2612d84bcb80c851eb0f316afb47688ad40a3#4cb2612d84bcb80c851eb0f316afb47688ad40a3"
 dependencies = [
  "ash",
  "glam",

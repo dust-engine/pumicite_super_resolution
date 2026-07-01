@@ -28,7 +28,7 @@ use pumicite::HasDevice;
 use pumicite::command::CommandEncoder;
 use pumicite::physical_device::PhysicalDevice;
 use pumicite::pipeline::PipelineCache;
-use pumicite::utils::AsMTLCommandBuffer;
+use pumicite::utils::metal::AsMTLCommandBuffer;
 
 use crate::{
     MAX_SUPER_RESOLUTION_NAME_SIZE, MAX_SUPER_RESOLUTION_QUEUE_FAMILY_COUNT,
@@ -328,6 +328,9 @@ pub(crate) enum Scaler {
     Denoised(Retained<ProtocolObject<dyn MTL4FXTemporalDenoisedScaler>>),
     Spatial(Retained<ProtocolObject<dyn MTL4FXSpatialScaler>>),
 }
+
+unsafe impl Send for Scaler {}
+unsafe impl Sync for Scaler {}
 
 /// Vulkan-to-Metal pixel format mapping for the formats MetalFX accepts.
 const VK_TO_MTL_FORMAT: &[(vk::Format, MTLPixelFormat)] = &[
@@ -900,11 +903,11 @@ pub(crate) fn engine_supported_image_properties(
     engine: SuperResolutionEngine,
     image_use: SuperResolutionImageUseFlags,
 ) -> Vec<SuperResolutionImageProperties> {
-    if engine == TEMPORAL_SCALER {
+    if engine == SuperResolutionEngine::METALFX_TEMPORAL_SCALER {
         temporal_supported_image_properties(image_use)
-    } else if engine == SPATIAL_SCALER {
+    } else if engine == SuperResolutionEngine::METALFX_SPATIAL_SCALER {
         spatial_supported_image_properties(image_use)
-    } else if engine == TEMPORAL_DENOISED_SCALER {
+    } else if engine == SuperResolutionEngine::METALFX_TEMPORAL_DENOISED_SCALER {
         denoised_supported_image_properties(image_use)
     } else {
         panic!("unknown super resolution engine for the MetalFX backend")
