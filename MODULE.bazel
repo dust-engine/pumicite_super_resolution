@@ -1,0 +1,41 @@
+module(
+    name = "pumicite_super_resolution",
+    version = "0.1.0",
+)
+
+# -----------------------------------------------------------------------------
+# Vulkan SDK — needed by the DLSS C shim, which includes <vulkan/vulkan.h>.
+# -----------------------------------------------------------------------------
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_vulkan", version = "0.7.0")
+
+vulkan_sdk = use_extension("@rules_vulkan//vulkan:extensions.bzl", "vulkan_sdk")
+vulkan_sdk.toolchain(version = "1.4.341.1")
+use_repo(vulkan_sdk, "vulkan_sdk_1.4.341.1")
+
+register_toolchains("@vulkan_sdk_1.4.341.1//:all")
+
+# Fork providing the SDK toolchain (matches dust). A `git_override` in a
+# non-root module is ignored, so when this module is consumed by another (e.g.
+# dust) that module's own rules_vulkan override applies instead.
+git_override(
+    module_name = "rules_vulkan",
+    remote = "https://github.com/0xbeefd1ed/rules_vulkan",
+    commit = "85c6ca71e2cecede88985ac89568230e772a4f34",
+)
+
+# -----------------------------------------------------------------------------
+# NVIDIA DLSS SDK (headers + prebuilt NGX libraries + runtime DLLs).
+# -----------------------------------------------------------------------------
+new_git_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:git.bzl",
+    "new_git_repository",
+)
+
+new_git_repository(
+    name = "dlss",
+    remote = "https://github.com/NVIDIA/DLSS.git",
+    commit = "d1bef2006b41eefd9d44b0a05f123993f3acbf3c",
+    build_file = "//third_party:dlss.BUILD.bazel",
+)

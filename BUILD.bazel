@@ -1,0 +1,30 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# C shim around the SDK's `static inline` DLSS-RR helper macros (the FFI in
+# `src/dlss/sys.rs` binds these). A Bazel consumer links this via a
+# `crate.annotation` with `gen_build_script = "off"`; the standalone Cargo
+# `build.rs` compiles the same source directly instead.
+cc_library(
+    name = "dlss_helpers",
+    srcs = ["src/dlss/dlss_wrapper.c"],
+    deps = [
+        "@dlss//:dlss_headers",
+        "@vulkan_sdk_1.4.341.1//:vulkan_headers",
+    ],
+)
+
+# Re-export the NGX import library and the runtime-DLL filegroup so consumers
+# depend on this module (`@pumicite_super_resolution//:dlss`,
+# `@pumicite_super_resolution//:dlssd_runtime`) without referencing the internal
+# `@dlss` repo directly.
+alias(
+    name = "dlss",
+    actual = "@dlss//:dlss",
+)
+
+alias(
+    name = "dlssd_runtime",
+    actual = "@dlss//:dlssd_runtime",
+)

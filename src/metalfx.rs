@@ -48,20 +48,9 @@ fn system_default_device() -> Retained<ProtocolObject<dyn MTLDevice>> {
     MTLCreateSystemDefaultDevice().expect("no system default Metal device available")
 }
 
-/// `MTL4FXTemporalScaler` — temporal upscaling that accumulates samples across
-/// frames using motion vectors. Corresponds to a temporal engine.
-pub const TEMPORAL_SCALER: SuperResolutionEngine = SuperResolutionEngine(0);
-
-/// `MTL4FXSpatialScaler` — single-frame spatial upscaling with no history.
-pub const SPATIAL_SCALER: SuperResolutionEngine = SuperResolutionEngine(1);
-
-/// `MTL4FXTemporalDenoisedScaler` — temporal upscaling combined with denoising,
-/// intended for ray-traced inputs.
-pub const TEMPORAL_DENOISED_SCALER: SuperResolutionEngine = SuperResolutionEngine(2);
-
 /// The engines provided by the MetalFX backend, in enumeration order.
 pub(crate) const ENGINES: [SuperResolutionEngine; 3] =
-    [TEMPORAL_SCALER, SPATIAL_SCALER, TEMPORAL_DENOISED_SCALER];
+    [SuperResolutionEngine::METALFX_TEMPORAL_SCALER, SuperResolutionEngine::METALFX_SPATIAL_SCALER, SuperResolutionEngine::METALFX_TEMPORAL_DENOISED_SCALER];
 
 /// Representative discrete scaling factors we expose for engines whose native
 /// scaling is continuous. Each entry is an output-over-input ratio; the set is
@@ -112,11 +101,11 @@ pub(crate) fn engine_properties(
     physical_device: &PhysicalDevice,
     engine: SuperResolutionEngine,
 ) -> SuperResolutionEngineProperties {
-    if engine == TEMPORAL_SCALER {
+    if engine == SuperResolutionEngine::METALFX_TEMPORAL_SCALER {
         temporal_scaler_properties(physical_device)
-    } else if engine == SPATIAL_SCALER {
+    } else if engine == SuperResolutionEngine::METALFX_SPATIAL_SCALER {
         spatial_scaler_properties(physical_device)
-    } else if engine == TEMPORAL_DENOISED_SCALER {
+    } else if engine == SuperResolutionEngine::METALFX_TEMPORAL_DENOISED_SCALER {
         temporal_denoised_scaler_properties(physical_device)
     } else {
         panic!("unknown super resolution engine for the MetalFX backend")
@@ -369,11 +358,11 @@ pub(crate) fn create_session(
     pipeline_cache: &PipelineCache,
     create_info: &SuperResolutionSessionCreateInfo,
 ) -> VkResult<crate::SuperResolutionSession> {
-    let scaler = if create_info.engine == TEMPORAL_SCALER {
+    let scaler = if create_info.engine == SuperResolutionEngine::METALFX_TEMPORAL_SCALER {
         create_temporal_scaler(create_info)?
-    } else if create_info.engine == SPATIAL_SCALER {
+    } else if create_info.engine == SuperResolutionEngine::METALFX_SPATIAL_SCALER {
         create_spatial_scaler(create_info)?
-    } else if create_info.engine == TEMPORAL_DENOISED_SCALER {
+    } else if create_info.engine == SuperResolutionEngine::METALFX_TEMPORAL_DENOISED_SCALER {
         create_temporal_denoised_scaler(create_info)?
     } else {
         panic!("unknown super resolution engine for the MetalFX backend")

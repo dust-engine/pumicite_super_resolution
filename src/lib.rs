@@ -1,10 +1,44 @@
 use ash::{VkResult, vk::{self, Flags}, vk_bitflags_wrapped};
+use std::ffi::CStr;
+use std::path::Path;
 
 #[cfg(target_vendor = "apple")]
-pub mod metalfx;
+mod metalfx;
+
+#[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+mod dlss;
+
+#[derive(Clone, Copy)]
+pub struct SuperResolutionApplicationInfo<'a> {
+    /// A stable project/application identifier registered with the vendor. For
+    /// NGX this is the DLSS Project ID (a GUID string).
+    pub project_id: &'a CStr,
+    /// The application/engine version string.
+    pub engine_version: &'a CStr,
+    /// A writable directory the backend may use for its own data (caches, logs).
+    /// For NGX this is the `ApplicationDataPath`. Must already exist and be
+    /// writable.
+    pub application_data_path: &'a Path,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SuperResolutionEngine(u32);
+impl SuperResolutionEngine {
+    /// The single engine exposed by the DLSS backend: DLSS-RR (Ray Reconstruction),
+    /// a temporal denoising upscaler.
+    pub const DLSS_RR: SuperResolutionEngine = SuperResolutionEngine(0);
+
+    /// `MTL4FXTemporalScaler` — temporal upscaling that accumulates samples across
+    /// frames using motion vectors. Corresponds to a temporal engine.
+    pub const METALFX_TEMPORAL_SCALER: SuperResolutionEngine = SuperResolutionEngine(10);
+
+    /// `MTL4FXSpatialScaler` — single-frame spatial upscaling with no history.
+    pub const METALFX_SPATIAL_SCALER: SuperResolutionEngine = SuperResolutionEngine(11);
+
+    /// `MTL4FXTemporalDenoisedScaler` — temporal upscaling combined with denoising,
+    /// intended for ray-traced inputs.
+    pub const METALFX_TEMPORAL_DENOISED_SCALER: SuperResolutionEngine = SuperResolutionEngine(12);
+}
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -264,6 +298,7 @@ pub struct SuperResolutionDescriptorHeapRanges {
 pub trait SuperResolutionPhysicalDevice {
     fn enumerate_super_resolution_engines(
         &self,
+        application_info: &SuperResolutionApplicationInfo<'_>,
     ) -> VkResult<Vec<SuperResolutionEngine>>;
 
     fn get_super_resolution_engine_properties(
@@ -284,12 +319,19 @@ pub trait SuperResolutionPhysicalDevice {
 impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice {
         fn enumerate_super_resolution_engines(
         &self,
+        application_info: &SuperResolutionApplicationInfo<'_>,
     ) -> VkResult<Vec<SuperResolutionEngine>> {
         #[cfg(target_vendor = "apple")]
         {
+            let _ = application_info;
             return Ok(metalfx::ENGINES.to_vec());
         }
-        todo!()
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return Ok(dlss::enumerate_engines(self, application_info));
+        }
+        #[allow(unreachable_code)]
+        return Ok(Vec::new())
     }
 
     fn get_super_resolution_engine_properties(
@@ -300,7 +342,11 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
         {
             return metalfx::engine_properties(self, engine);
         }
-        todo!()
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return dlss::engine_properties(self, engine);
+        }
+        panic!("Unknown upscaler engine");
     }
 
     /// Enumerates the image properties supported by a super resolution `engine`
@@ -314,7 +360,12 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
         {
             return Ok(metalfx::engine_supported_image_properties(engine, image_use));
         }
-        todo!()
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return Ok(dlss::engine_supported_image_properties(engine, image_use));
+        }
+        #[allow(unreachable_code)]
+        Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
     }
 }
 
@@ -343,7 +394,12 @@ impl SuperResolutionDevice for pumicite::Device {
         {
             return Ok(metalfx::session_memory_requirements());
         }
-        todo!()
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return Ok(dlss::session_memory_requirements());
+        }
+        #[allow(unreachable_code)]
+        Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
     }
 
     fn get_super_resolution_session_descriptor_heap_ranges(
@@ -354,7 +410,12 @@ impl SuperResolutionDevice for pumicite::Device {
         {
             return Ok(metalfx::session_descriptor_heap_ranges());
         }
-        todo!()
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return Ok(dlss::session_descriptor_heap_ranges());
+        }
+        #[allow(unreachable_code)]
+        Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
     }
 }
 
@@ -371,6 +432,9 @@ pub struct SuperResolutionSession {
     /// The backing MetalFX scaler. Retained for the session's lifetime.
     #[cfg(target_vendor = "apple")]
     scaler: metalfx::Scaler,
+    /// The backing DLSS-RR session (deferred NGX feature + create params).
+    #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+    dlss: dlss::DlssSession,
 }
 
 impl pumicite::HasDevice for SuperResolutionSession {
@@ -384,12 +448,23 @@ impl SuperResolutionSession {
     pub fn new(
         pipeline_cache: &pumicite::pipeline::PipelineCache,
         create_info: &SuperResolutionSessionCreateInfo,
+        application_info: &SuperResolutionApplicationInfo<'_>,
     ) -> VkResult<SuperResolutionSession> {
         #[cfg(target_vendor = "apple")]
         {
+            let _ = application_info; // MetalFX has no application identity.
             return metalfx::create_session(pipeline_cache, create_info);
         }
-        todo!()
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return dlss::create_session(pipeline_cache, create_info, application_info);
+        }
+        // No backend owns this engine (none were enumerated).
+        #[cfg(not(any(target_vendor = "apple", feature = "dlss")))]
+        {
+            let _ = application_info;
+            Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
+        }
     }
 
     /// Attaches device memory to this session's internal bind points.
@@ -401,7 +476,11 @@ impl SuperResolutionSession {
         {
             return Ok(());
         }
-        todo!()
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            // NGX manages all session memory internally; nothing to bind.
+            return Ok(());
+        }
     }
 
     /// Queries the recommended per-frame jitter pattern for this session.
@@ -420,7 +499,12 @@ impl SuperResolutionSession {
                 source_region_size,
             );
         }
-        todo!()
+        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            return dlss::recommended_jitter_pattern(destination_region_size, source_region_size);
+        }
+        #[allow(unreachable_code)]
+        Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
     }
 }
 
@@ -560,7 +644,11 @@ impl SuperResolutionCommandEncoder for pumicite::command::CommandEncoder<'_> {
             metalfx::initialize_session(self, session);
             return;
         }
-        todo!()
+#[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            dlss::initialize_session(self, session);
+            return;
+        }
     }
 
     fn dispatch_super_resolution(
@@ -573,6 +661,10 @@ impl SuperResolutionCommandEncoder for pumicite::command::CommandEncoder<'_> {
             metalfx::dispatch(self, session, dispatch_info);
             return;
         }
-        todo!()
+#[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+        {
+            dlss::dispatch(self, session, dispatch_info);
+            return;
+        }
     }
 }

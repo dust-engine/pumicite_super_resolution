@@ -1,0 +1,3 @@
+# Bundle the DLSS development DLLs (with on-screen debug overlays) instead of the
+# release DLLs. Use as `bazelisk build --config=dlss_dev //...`.
+build:dlss_dev --define=dlss=dev

@@ -3,15 +3,34 @@ name = "pumicite_super_resolution"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["dlss"]
+
+dlss = ["dep:tracing", "dep:runfiles"]
+
 [dependencies]
-pumicite = { git = "https://github.com/dust-engine/pumicite" }
+pumicite = { git = "https://github.com/dust-engine/pumicite.git", rev = "ee3c41179c414dc20b0085ac58627d72e71f8011" }
 ash = { git = "https://github.com/0xbeefd1ed/ash", branch = "meta" }
+tracing = { version = "0.1", optional = true }
+runfiles = { version = "0.2", optional = true }
 
 # Apple-only dependencies (for MetalFX backend).
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6" }
 objc2-metal = { version = "0.3.2" }
 objc2-metal-fx = { version = "0.3.2" }
+
+# Used by build.rs (only when the `dlss` feature is enabled) to obtain the DLSS
+# SDK and compile the NGX C shim. Build dependencies can't be feature-gated, so
+# they're always present but only invoked under `dlss`.
+[build-dependencies]
+cc = "1"
+# Standalone SDK download (no Bazel). nyquest is the HTTP client; flate2 + tar
+# unpack the GitHub source tarball.
+nyquest = { version = "0.4", features = ["blocking"] }
+nyquest-preset = { version = "0.4", features = ["blocking"] }
+flate2 = "1"
+tar = "0.4"
 
 [patch."https://github.com/ash-rs/ash.git"]
 ash = { git = "https://github.com/0xbeefd1ed/ash", branch = "meta" }
