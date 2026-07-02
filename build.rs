@@ -119,8 +119,6 @@ fn locate_sdk() -> Option<PathBuf> {
     }
 }
 
-/// Downloads the pinned DLSS SDK source tarball with `nyquest` and extracts it
-/// into `dest` (so `dest/include`, `dest/lib/...` exist).
 fn download_sdk(dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let url = format!("https://codeload.github.com/NVIDIA/DLSS/tar.gz/{DLSS_COMMIT}");
     println!("cargo:warning=downloading DLSS SDK from {url}");
@@ -131,15 +129,23 @@ fn download_sdk(dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .request(nyquest::blocking::Request::get(url))?
         .with_successful_status()?
         .bytes()?;
-
-    // GitHub archives prefix every entry with `DLSS-<commit>/`; unpack to a temp
-    // dir, then promote that single top-level directory to `dest`.
-    let decoder = flate2::read::GzDecoder::new(body.as_slice());
-    let mut archive = tar::Archive::new(decoder);
     let tmp = dest.with_extension("unpacking");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp)?;
-    archive.unpack(&tmp)?;
+
+    let archive_path = tmp.join("dlss-sdk.tar.gz");
+    std::fs::write(&archive_path, body.as_slice())?;
+    let status = std::process::Command::new("tar")
+        .arg("-xzf")
+        .arg(&archive_path)
+        .arg("-C")
+        .arg(&tmp)
+        .status()
+        .map_err(|e| format!("failed to run the system `tar` (is it on PATH?): {e}"))?;
+    if !status.success() {
+        return Err(format!("system `tar` failed to extract the DLSS archive ({status})").into());
+    }
+    let _ = std::fs::remove_file(&archive_path);
 
     let top = std::fs::read_dir(&tmp)?
         .filter_map(Result::ok)

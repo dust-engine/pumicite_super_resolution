@@ -25,12 +25,8 @@ objc2-metal-fx = { version = "0.3.2" }
 # they're always present but only invoked under `dlss`.
 [build-dependencies]
 cc = "1"
-# Standalone SDK download (no Bazel). nyquest is the HTTP client; flate2 + tar
-# unpack the GitHub source tarball.
 nyquest = { version = "0.4", features = ["blocking"] }
 nyquest-preset = { version = "0.4", features = ["blocking"] }
-flate2 = "1"
-tar = "0.4"
 
 [patch."https://github.com/ash-rs/ash.git"]
 ash = { git = "https://github.com/0xbeefd1ed/ash", branch = "meta" }
