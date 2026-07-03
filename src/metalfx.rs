@@ -578,10 +578,11 @@ fn create_spatial_scaler(create_info: &SuperResolutionSessionCreateInfo) -> VkRe
 unsafe fn export_texture<'a>(
     device: &'a pumicite::Device,
     image_info: &SuperResolutionImageInfo,
+    plane: vk::ImageAspectFlags
 ) -> &'a ProtocolObject<dyn MTLTexture> {
     let mut texture_info = vk::ExportMetalTextureInfoEXT::default()
         .image(image_info.view.image)
-        .plane(vk::ImageAspectFlags::PLANE_0);
+        .plane(plane);
     let mut info = vk::ExportMetalObjectsInfoEXT::default();
     info.p_next = (&mut texture_info as *mut vk::ExportMetalTextureInfoEXT).cast();
     unsafe {
@@ -673,10 +674,11 @@ fn dispatch_spatial(
     // SAFETY: the color and output textures are valid for the duration of this
     // call; the spatial scaler consumes no other inputs.
     unsafe {
-        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info)));
+        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info, vk::ImageAspectFlags::COLOR)));
         scaler.setOutputTexture(Some(export_texture(
             device,
             dispatch_info.destination_image_info,
+            vk::ImageAspectFlags::COLOR,
         )));
         scaler.setInputContentWidth(dispatch_info.source_size.width as usize);
         scaler.setInputContentHeight(dispatch_info.source_size.height as usize);
@@ -699,7 +701,7 @@ fn dispatch_temporal(
     // SAFETY: every Metal object is valid for the duration of this call, and the
     // scaler is fully configured before its work is encoded.
     unsafe {
-        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info)));
+        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info, vk::ImageAspectFlags::COLOR)));
         let (x, y) = offset_xy(dispatch_info.source_image_info.view_offset);
         let _: () = msg_send![scaler, setColorContentOffsetX: x];
         let _: () = msg_send![scaler, setColorContentOffsetY: y];
@@ -707,13 +709,14 @@ fn dispatch_temporal(
         scaler.setOutputTexture(Some(export_texture(
             device,
             dispatch_info.destination_image_info,
+            vk::ImageAspectFlags::COLOR,
         )));
         let (x, y) = offset_xy(dispatch_info.destination_image_info.view_offset);
         let _: () = msg_send![scaler, setOutputOffsetX: x];
         let _: () = msg_send![scaler, setOutputOffsetY: y];
 
         if let Some(depth) = dispatch_info.source_depth_image_info {
-            scaler.setDepthTexture(Some(export_texture(device, depth)));
+            scaler.setDepthTexture(Some(export_texture(device, depth, vk::ImageAspectFlags::COLOR)));
             let (x, y) = offset_xy(depth.view_offset);
             let _: () = msg_send![scaler, setDepthContentOffsetX: x];
             let _: () = msg_send![scaler, setDepthContentOffsetY: y];
@@ -721,13 +724,13 @@ fn dispatch_temporal(
 
         if let Some(motion) = dispatch_info.motion_info {
             if let Some(motion_vectors) = motion.motion_vectors_image_info {
-                scaler.setMotionTexture(Some(export_texture(device, motion_vectors)));
+                scaler.setMotionTexture(Some(export_texture(device, motion_vectors, vk::ImageAspectFlags::COLOR)));
                 let (x, y) = offset_xy(motion_vectors.view_offset);
                 let _: () = msg_send![scaler, setMotionContentOffsetX: x];
                 let _: () = msg_send![scaler, setMotionContentOffsetY: y];
             }
             if let Some(reactive) = motion.reactive_mask_image_info {
-                scaler.setReactiveMaskTexture(Some(export_texture(device, reactive)));
+                scaler.setReactiveMaskTexture(Some(export_texture(device, reactive, vk::ImageAspectFlags::COLOR)));
                 let (x, y) = offset_xy(reactive.view_offset);
                 let _: () = msg_send![scaler, setReactiveMaskContentOffsetX: x];
                 let _: () = msg_send![scaler, setReactiveMaskContentOffsetY: y];
@@ -739,7 +742,7 @@ fn dispatch_temporal(
         if let Some(exposure) = dispatch_info.exposure_info {
             scaler.setPreExposure(exposure.pre_exposure);
             if let Some(exposure_image) = exposure.exposure_scale_image_info {
-                scaler.setExposureTexture(Some(export_texture(device, exposure_image)));
+                scaler.setExposureTexture(Some(export_texture(device, exposure_image, vk::ImageAspectFlags::COLOR)));
             }
         }
 
@@ -774,22 +777,23 @@ fn dispatch_denoised(
     // SAFETY: every Metal object is valid for the duration of this call, and the
     // scaler is fully configured before its work is encoded.
     unsafe {
-        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info)));
+        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info, vk::ImageAspectFlags::COLOR)));
         scaler.setOutputTexture(Some(export_texture(
             device,
             dispatch_info.destination_image_info,
+            vk::ImageAspectFlags::COLOR,
         )));
 
         if let Some(depth) = dispatch_info.source_depth_image_info {
-            scaler.setDepthTexture(Some(export_texture(device, depth)));
+            scaler.setDepthTexture(Some(export_texture(device, depth, vk::ImageAspectFlags::COLOR)));
         }
 
         if let Some(motion) = dispatch_info.motion_info {
             if let Some(motion_vectors) = motion.motion_vectors_image_info {
-                scaler.setMotionTexture(Some(export_texture(device, motion_vectors)));
+                scaler.setMotionTexture(Some(export_texture(device, motion_vectors, vk::ImageAspectFlags::COLOR)));
             }
             if let Some(reactive) = motion.reactive_mask_image_info {
-                scaler.setReactiveMaskTexture(Some(export_texture(device, reactive)));
+                scaler.setReactiveMaskTexture(Some(export_texture(device, reactive, vk::ImageAspectFlags::COLOR)));
             }
             scaler.setJitterOffsetX(motion.texel_jitter_x);
             scaler.setJitterOffsetY(motion.texel_jitter_y);
@@ -798,7 +802,7 @@ fn dispatch_denoised(
         if let Some(exposure) = dispatch_info.exposure_info {
             scaler.setPreExposure(exposure.pre_exposure);
             if let Some(exposure_image) = exposure.exposure_scale_image_info {
-                scaler.setExposureTexture(Some(export_texture(device, exposure_image)));
+                scaler.setExposureTexture(Some(export_texture(device, exposure_image, vk::ImageAspectFlags::COLOR)));
             }
         }
 
@@ -806,22 +810,24 @@ fn dispatch_denoised(
             scaler.setDiffuseAlbedoTexture(Some(export_texture(
                 device,
                 denoise.diffuse_albedo_image_info,
+                vk::ImageAspectFlags::COLOR,
             )));
             scaler.setSpecularAlbedoTexture(Some(export_texture(
                 device,
                 denoise.specular_albedo_image_info,
+                vk::ImageAspectFlags::COLOR,
             )));
-            scaler.setNormalTexture(Some(export_texture(device, denoise.normal_image_info)));
-            scaler.setRoughnessTexture(Some(export_texture(device, denoise.roughness_image_info)));
+            scaler.setNormalTexture(Some(export_texture(device, denoise.normal_image_info, vk::ImageAspectFlags::COLOR)));
+            scaler.setRoughnessTexture(Some(export_texture(device, denoise.roughness_image_info, vk::ImageAspectFlags::COLOR)));
 
             if let Some(specular_hit) = denoise.specular_hit_distance_image_info {
-                scaler.setSpecularHitDistanceTexture(Some(export_texture(device, specular_hit)));
+                scaler.setSpecularHitDistanceTexture(Some(export_texture(device, specular_hit, vk::ImageAspectFlags::COLOR)));
             }
             if let Some(strength) = denoise.denoise_strength_mask_image_info {
-                scaler.setDenoiseStrengthMaskTexture(Some(export_texture(device, strength)));
+                scaler.setDenoiseStrengthMaskTexture(Some(export_texture(device, strength, vk::ImageAspectFlags::COLOR)));
             }
             if let Some(overlay) = denoise.transparency_overlay_image_info {
-                scaler.setTransparencyOverlayTexture(Some(export_texture(device, overlay)));
+                scaler.setTransparencyOverlayTexture(Some(export_texture(device, overlay, vk::ImageAspectFlags::COLOR)));
             }
 
             set_denoise_matrices(
