@@ -21,23 +21,22 @@ use objc2_metal::{
 use objc2_metal_fx::{
     MTL4FXSpatialScaler, MTL4FXTemporalDenoisedScaler, MTL4FXTemporalScaler,
     MTLFXSpatialScalerBase, MTLFXSpatialScalerColorProcessingMode, MTLFXSpatialScalerDescriptor,
-    MTLFXTemporalDenoisedScalerBase, MTLFXTemporalDenoisedScalerDescriptor, MTLFXTemporalScalerBase,
-    MTLFXTemporalScalerDescriptor,
+    MTLFXTemporalDenoisedScalerBase, MTLFXTemporalDenoisedScalerDescriptor,
+    MTLFXTemporalScalerBase, MTLFXTemporalScalerDescriptor,
 };
 use pumicite::HasDevice;
 use pumicite::command::CommandEncoder;
 use pumicite::physical_device::PhysicalDevice;
-use pumicite::pipeline::PipelineCache;
 use pumicite::utils::metal::AsMTLCommandBuffer;
 
 use crate::{
     MAX_SUPER_RESOLUTION_NAME_SIZE, MAX_SUPER_RESOLUTION_QUEUE_FAMILY_COUNT,
     MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT, ScalingFactor, SuperResolutionDescriptorHeapRanges,
     SuperResolutionDispatchFlags, SuperResolutionDispatchInfo, SuperResolutionEngine,
-    SuperResolutionEngineProperties, SuperResolutionEnginePropertyFlags,
-    SuperResolutionImageInfo, SuperResolutionImageProperties, SuperResolutionImageUseFlags,
-    SuperResolutionQualityFocusFlags, SuperResolutionSessionCreateFlags,
-    SuperResolutionSessionCreateInfo, SuperResolutionSessionMemoryRequirements,
+    SuperResolutionEngineProperties, SuperResolutionEnginePropertyFlags, SuperResolutionImageInfo,
+    SuperResolutionImageProperties, SuperResolutionImageUseFlags, SuperResolutionQualityFocusFlags,
+    SuperResolutionSessionCreateFlags, SuperResolutionSessionCreateInfo,
+    SuperResolutionSessionMemoryRequirements,
 };
 
 /// Returns the system default Metal device that MetalFX targets.
@@ -49,19 +48,40 @@ fn system_default_device() -> Retained<ProtocolObject<dyn MTLDevice>> {
 }
 
 /// The engines provided by the MetalFX backend, in enumeration order.
-pub(crate) const ENGINES: [SuperResolutionEngine; 3] =
-    [SuperResolutionEngine::METALFX_TEMPORAL_SCALER, SuperResolutionEngine::METALFX_SPATIAL_SCALER, SuperResolutionEngine::METALFX_TEMPORAL_DENOISED_SCALER];
+pub(crate) const ENGINES: [SuperResolutionEngine; 3] = [
+    SuperResolutionEngine::METALFX_TEMPORAL_SCALER,
+    SuperResolutionEngine::METALFX_SPATIAL_SCALER,
+    SuperResolutionEngine::METALFX_TEMPORAL_DENOISED_SCALER,
+];
 
 /// Representative discrete scaling factors we expose for engines whose native
 /// scaling is continuous. Each entry is an output-over-input ratio; the set is
 /// filtered against the engine's reported `[min, max]` range at query time.
 const CANDIDATE_SCALING_FACTORS: [ScalingFactor; 6] = [
-    ScalingFactor { numerator: 3, denominator: 2 }, // 1.50x
-    ScalingFactor { numerator: 5, denominator: 3 }, // 1.67x
-    ScalingFactor { numerator: 7, denominator: 4 }, // 1.75x
-    ScalingFactor { numerator: 2, denominator: 1 }, // 2.00x
-    ScalingFactor { numerator: 5, denominator: 2 }, // 2.50x
-    ScalingFactor { numerator: 3, denominator: 1 }, // 3.00x
+    ScalingFactor {
+        numerator: 3,
+        denominator: 2,
+    }, // 1.50x
+    ScalingFactor {
+        numerator: 5,
+        denominator: 3,
+    }, // 1.67x
+    ScalingFactor {
+        numerator: 7,
+        denominator: 4,
+    }, // 1.75x
+    ScalingFactor {
+        numerator: 2,
+        denominator: 1,
+    }, // 2.00x
+    ScalingFactor {
+        numerator: 5,
+        denominator: 2,
+    }, // 2.50x
+    ScalingFactor {
+        numerator: 3,
+        denominator: 1,
+    }, // 3.00x
 ];
 
 /// Builds a fixed-size, NUL-padded engine name array from a byte string.
@@ -112,9 +132,7 @@ pub(crate) fn engine_properties(
     }
 }
 
-fn temporal_scaler_properties(
-    physical_device: &PhysicalDevice,
-) -> SuperResolutionEngineProperties {
+fn temporal_scaler_properties(physical_device: &PhysicalDevice) -> SuperResolutionEngineProperties {
     let device = system_default_device();
 
     // MetalFX temporal scaling is continuous; query the supported float range
@@ -129,9 +147,10 @@ fn temporal_scaler_properties(
         )
     };
 
-    let mut supported_scaling_factors =
-        [ScalingFactor { numerator: 0, denominator: 1 };
-            MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
+    let mut supported_scaling_factors = [ScalingFactor {
+        numerator: 0,
+        denominator: 1,
+    }; MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
     let supported_scaling_factor_count =
         discretize_scale_range(min_scale, max_scale, &mut supported_scaling_factors);
 
@@ -162,7 +181,10 @@ fn temporal_scaler_properties(
         supported_scaling_factor_count,
         supported_scaling_factors,
         // Metal's maximum 2D texture dimension on Apple silicon.
-        max_destination_region_size: vk::Extent2D { width: 16384, height: 16384 },
+        max_destination_region_size: vk::Extent2D {
+            width: 16384,
+            height: 16384,
+        },
         max_supported_concurrent_session_dispatches: 1,
     }
 }
@@ -196,12 +218,8 @@ impl TemporalTextureRole {
     /// output is written (`ShaderWrite`).
     fn supported(self) -> (&'static [vk::Format], vk::ImageUsageFlags) {
         match self {
-            TemporalTextureRole::Color => {
-                (TEMPORAL_COLOR_FORMATS, vk::ImageUsageFlags::SAMPLED)
-            }
-            TemporalTextureRole::Output => {
-                (TEMPORAL_COLOR_FORMATS, vk::ImageUsageFlags::STORAGE)
-            }
+            TemporalTextureRole::Color => (TEMPORAL_COLOR_FORMATS, vk::ImageUsageFlags::SAMPLED),
+            TemporalTextureRole::Output => (TEMPORAL_COLOR_FORMATS, vk::ImageUsageFlags::STORAGE),
             TemporalTextureRole::Depth => (
                 &[vk::Format::R32_SFLOAT, vk::Format::D32_SFLOAT],
                 vk::ImageUsageFlags::SAMPLED,
@@ -230,9 +248,10 @@ fn temporal_denoised_scaler_properties(
         )
     };
 
-    let mut supported_scaling_factors =
-        [ScalingFactor { numerator: 0, denominator: 1 };
-            MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
+    let mut supported_scaling_factors = [ScalingFactor {
+        numerator: 0,
+        denominator: 1,
+    }; MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
     let supported_scaling_factor_count =
         discretize_scale_range(min_scale, max_scale, &mut supported_scaling_factors);
 
@@ -265,7 +284,10 @@ fn temporal_denoised_scaler_properties(
             MAX_SUPER_RESOLUTION_QUEUE_FAMILY_COUNT],
         supported_scaling_factor_count,
         supported_scaling_factors,
-        max_destination_region_size: vk::Extent2D { width: 16384, height: 16384 },
+        max_destination_region_size: vk::Extent2D {
+            width: 16384,
+            height: 16384,
+        },
         max_supported_concurrent_session_dispatches: 1,
     }
 }
@@ -274,9 +296,10 @@ fn spatial_scaler_properties(physical_device: &PhysicalDevice) -> SuperResolutio
     // The spatial scaler exposes no scale-range query; it accepts arbitrary
     // input/output sizes, so we report the full candidate set and flag it
     // continuous.
-    let mut supported_scaling_factors =
-        [ScalingFactor { numerator: 0, denominator: 1 };
-            MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
+    let mut supported_scaling_factors = [ScalingFactor {
+        numerator: 0,
+        denominator: 1,
+    }; MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
     let supported_scaling_factor_count =
         discretize_scale_range(1.0, f32::INFINITY, &mut supported_scaling_factors);
 
@@ -298,7 +321,10 @@ fn spatial_scaler_properties(physical_device: &PhysicalDevice) -> SuperResolutio
             MAX_SUPER_RESOLUTION_QUEUE_FAMILY_COUNT],
         supported_scaling_factor_count,
         supported_scaling_factors,
-        max_destination_region_size: vk::Extent2D { width: 16384, height: 16384 },
+        max_destination_region_size: vk::Extent2D {
+            width: 16384,
+            height: 16384,
+        },
         max_supported_concurrent_session_dispatches: 1,
     }
 }
@@ -337,7 +363,10 @@ const VK_TO_MTL_FORMAT: &[(vk::Format, MTLPixelFormat)] = &[
     (vk::Format::R16G16B16A16_SFLOAT, MTLPixelFormat::RGBA16Float),
     (vk::Format::R8G8B8A8_UNORM, MTLPixelFormat::RGBA8Unorm),
     (vk::Format::B8G8R8A8_UNORM, MTLPixelFormat::BGRA8Unorm),
-    (vk::Format::A2B10G10R10_UNORM_PACK32, MTLPixelFormat::RGB10A2Unorm),
+    (
+        vk::Format::A2B10G10R10_UNORM_PACK32,
+        MTLPixelFormat::RGB10A2Unorm,
+    ),
     (vk::Format::R32_SFLOAT, MTLPixelFormat::R32Float),
     (vk::Format::D32_SFLOAT, MTLPixelFormat::Depth32Float),
     (vk::Format::R16G16_SFLOAT, MTLPixelFormat::RG16Float),
@@ -357,29 +386,19 @@ fn mtl_pixel_format(format: vk::Format) -> MTLPixelFormat {
 }
 
 /// Implements [`crate::SuperResolutionSession::new`] for the MetalFX backend.
-pub(crate) fn create_session(
-    pipeline_cache: &PipelineCache,
-    create_info: &SuperResolutionSessionCreateInfo,
-) -> VkResult<crate::SuperResolutionSession> {
-    let scaler = if create_info.engine == SuperResolutionEngine::METALFX_TEMPORAL_SCALER {
-        create_temporal_scaler(create_info)?
+pub(crate) fn create_session(create_info: &SuperResolutionSessionCreateInfo) -> VkResult<Scaler> {
+    if create_info.engine == SuperResolutionEngine::METALFX_TEMPORAL_SCALER {
+        create_temporal_scaler(create_info)
     } else if create_info.engine == SuperResolutionEngine::METALFX_SPATIAL_SCALER {
-        create_spatial_scaler(create_info)?
+        create_spatial_scaler(create_info)
     } else if create_info.engine == SuperResolutionEngine::METALFX_TEMPORAL_DENOISED_SCALER {
-        create_temporal_denoised_scaler(create_info)?
+        create_temporal_denoised_scaler(create_info)
     } else {
         panic!("unknown super resolution engine for the MetalFX backend")
-    };
-
-    Ok(crate::SuperResolutionSession {
-        device: pipeline_cache.device().clone(),
-        scaler,
-    })
+    }
 }
 
-fn create_temporal_scaler(
-    create_info: &SuperResolutionSessionCreateInfo,
-) -> VkResult<Scaler> {
+fn create_temporal_scaler(create_info: &SuperResolutionSessionCreateInfo) -> VkResult<Scaler> {
     let device = system_default_device();
 
     // The Metal 4 scaler path requires an `MTL4Compiler`. There is no way to
@@ -578,7 +597,7 @@ fn create_spatial_scaler(create_info: &SuperResolutionSessionCreateInfo) -> VkRe
 unsafe fn export_texture<'a>(
     device: &'a pumicite::Device,
     image_info: &SuperResolutionImageInfo,
-    plane: vk::ImageAspectFlags
+    plane: vk::ImageAspectFlags,
 ) -> &'a ProtocolObject<dyn MTLTexture> {
     let mut texture_info = vk::ExportMetalTextureInfoEXT::default()
         .image(image_info.view.image)
@@ -620,11 +639,11 @@ fn halton(mut index: u32, base: u32) -> f32 {
 /// is centered into the `[-0.5, 0.5)` texel range that
 /// [`MTLFXTemporalScalerBase::jitterOffsetX`] expects.
 pub(crate) fn recommended_jitter_pattern(
-    session: &crate::SuperResolutionSession,
+    scaler: &Scaler,
     destination_region_size: vk::Extent2D,
     source_region_size: vk::Extent2D,
 ) -> VkResult<Vec<(f32, f32)>> {
-    match &session.scaler {
+    match scaler {
         // Both temporal engines drive jitter the same way.
         Scaler::Temporal(_) | Scaler::Denoised(_) => {
             let scale = destination_region_size.width as f32 / source_region_size.width as f32;
@@ -642,19 +661,15 @@ pub(crate) fn recommended_jitter_pattern(
 ///
 /// MetalFX scalers are ready to use immediately after creation and have no
 /// separate command-buffer initialization step, so this is a no-op.
-pub(crate) fn initialize_session(
-    _encoder: &mut CommandEncoder,
-    _session: &crate::SuperResolutionSession,
-) {
-}
+pub(crate) fn initialize_session(_encoder: &mut CommandEncoder, _scaler: &Scaler) {}
 
 /// Implements [`crate::SuperResolutionCommandEncoder::dispatch_super_resolution`].
 pub(crate) fn dispatch(
     encoder: &mut CommandEncoder,
-    session: &crate::SuperResolutionSession,
+    scaler: &Scaler,
     dispatch_info: &SuperResolutionDispatchInfo,
 ) {
-    match &session.scaler {
+    match scaler {
         Scaler::Temporal(scaler) => dispatch_temporal(scaler, encoder, dispatch_info),
         Scaler::Denoised(scaler) => dispatch_denoised(scaler, encoder, dispatch_info),
         Scaler::Spatial(scaler) => dispatch_spatial(scaler, encoder, dispatch_info),
@@ -674,7 +689,11 @@ fn dispatch_spatial(
     // SAFETY: the color and output textures are valid for the duration of this
     // call; the spatial scaler consumes no other inputs.
     unsafe {
-        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info, vk::ImageAspectFlags::COLOR)));
+        scaler.setColorTexture(Some(export_texture(
+            device,
+            dispatch_info.source_image_info,
+            vk::ImageAspectFlags::COLOR,
+        )));
         scaler.setOutputTexture(Some(export_texture(
             device,
             dispatch_info.destination_image_info,
@@ -701,7 +720,11 @@ fn dispatch_temporal(
     // SAFETY: every Metal object is valid for the duration of this call, and the
     // scaler is fully configured before its work is encoded.
     unsafe {
-        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info, vk::ImageAspectFlags::COLOR)));
+        scaler.setColorTexture(Some(export_texture(
+            device,
+            dispatch_info.source_image_info,
+            vk::ImageAspectFlags::COLOR,
+        )));
         let (x, y) = offset_xy(dispatch_info.source_image_info.view_offset);
         let _: () = msg_send![scaler, setColorContentOffsetX: x];
         let _: () = msg_send![scaler, setColorContentOffsetY: y];
@@ -716,7 +739,11 @@ fn dispatch_temporal(
         let _: () = msg_send![scaler, setOutputOffsetY: y];
 
         if let Some(depth) = dispatch_info.source_depth_image_info {
-            scaler.setDepthTexture(Some(export_texture(device, depth, vk::ImageAspectFlags::COLOR)));
+            scaler.setDepthTexture(Some(export_texture(
+                device,
+                depth,
+                vk::ImageAspectFlags::COLOR,
+            )));
             let (x, y) = offset_xy(depth.view_offset);
             let _: () = msg_send![scaler, setDepthContentOffsetX: x];
             let _: () = msg_send![scaler, setDepthContentOffsetY: y];
@@ -724,13 +751,21 @@ fn dispatch_temporal(
 
         if let Some(motion) = dispatch_info.motion_info {
             if let Some(motion_vectors) = motion.motion_vectors_image_info {
-                scaler.setMotionTexture(Some(export_texture(device, motion_vectors, vk::ImageAspectFlags::COLOR)));
+                scaler.setMotionTexture(Some(export_texture(
+                    device,
+                    motion_vectors,
+                    vk::ImageAspectFlags::COLOR,
+                )));
                 let (x, y) = offset_xy(motion_vectors.view_offset);
                 let _: () = msg_send![scaler, setMotionContentOffsetX: x];
                 let _: () = msg_send![scaler, setMotionContentOffsetY: y];
             }
             if let Some(reactive) = motion.reactive_mask_image_info {
-                scaler.setReactiveMaskTexture(Some(export_texture(device, reactive, vk::ImageAspectFlags::COLOR)));
+                scaler.setReactiveMaskTexture(Some(export_texture(
+                    device,
+                    reactive,
+                    vk::ImageAspectFlags::COLOR,
+                )));
                 let (x, y) = offset_xy(reactive.view_offset);
                 let _: () = msg_send![scaler, setReactiveMaskContentOffsetX: x];
                 let _: () = msg_send![scaler, setReactiveMaskContentOffsetY: y];
@@ -742,7 +777,11 @@ fn dispatch_temporal(
         if let Some(exposure) = dispatch_info.exposure_info {
             scaler.setPreExposure(exposure.pre_exposure);
             if let Some(exposure_image) = exposure.exposure_scale_image_info {
-                scaler.setExposureTexture(Some(export_texture(device, exposure_image, vk::ImageAspectFlags::COLOR)));
+                scaler.setExposureTexture(Some(export_texture(
+                    device,
+                    exposure_image,
+                    vk::ImageAspectFlags::COLOR,
+                )));
             }
         }
 
@@ -777,7 +816,11 @@ fn dispatch_denoised(
     // SAFETY: every Metal object is valid for the duration of this call, and the
     // scaler is fully configured before its work is encoded.
     unsafe {
-        scaler.setColorTexture(Some(export_texture(device, dispatch_info.source_image_info, vk::ImageAspectFlags::COLOR)));
+        scaler.setColorTexture(Some(export_texture(
+            device,
+            dispatch_info.source_image_info,
+            vk::ImageAspectFlags::COLOR,
+        )));
         scaler.setOutputTexture(Some(export_texture(
             device,
             dispatch_info.destination_image_info,
@@ -785,15 +828,27 @@ fn dispatch_denoised(
         )));
 
         if let Some(depth) = dispatch_info.source_depth_image_info {
-            scaler.setDepthTexture(Some(export_texture(device, depth, vk::ImageAspectFlags::COLOR)));
+            scaler.setDepthTexture(Some(export_texture(
+                device,
+                depth,
+                vk::ImageAspectFlags::COLOR,
+            )));
         }
 
         if let Some(motion) = dispatch_info.motion_info {
             if let Some(motion_vectors) = motion.motion_vectors_image_info {
-                scaler.setMotionTexture(Some(export_texture(device, motion_vectors, vk::ImageAspectFlags::COLOR)));
+                scaler.setMotionTexture(Some(export_texture(
+                    device,
+                    motion_vectors,
+                    vk::ImageAspectFlags::COLOR,
+                )));
             }
             if let Some(reactive) = motion.reactive_mask_image_info {
-                scaler.setReactiveMaskTexture(Some(export_texture(device, reactive, vk::ImageAspectFlags::COLOR)));
+                scaler.setReactiveMaskTexture(Some(export_texture(
+                    device,
+                    reactive,
+                    vk::ImageAspectFlags::COLOR,
+                )));
             }
             scaler.setJitterOffsetX(motion.texel_jitter_x);
             scaler.setJitterOffsetY(motion.texel_jitter_y);
@@ -802,7 +857,11 @@ fn dispatch_denoised(
         if let Some(exposure) = dispatch_info.exposure_info {
             scaler.setPreExposure(exposure.pre_exposure);
             if let Some(exposure_image) = exposure.exposure_scale_image_info {
-                scaler.setExposureTexture(Some(export_texture(device, exposure_image, vk::ImageAspectFlags::COLOR)));
+                scaler.setExposureTexture(Some(export_texture(
+                    device,
+                    exposure_image,
+                    vk::ImageAspectFlags::COLOR,
+                )));
             }
         }
 
@@ -817,17 +876,37 @@ fn dispatch_denoised(
                 denoise.specular_albedo_image_info,
                 vk::ImageAspectFlags::COLOR,
             )));
-            scaler.setNormalTexture(Some(export_texture(device, denoise.normal_image_info, vk::ImageAspectFlags::COLOR)));
-            scaler.setRoughnessTexture(Some(export_texture(device, denoise.roughness_image_info, vk::ImageAspectFlags::COLOR)));
+            scaler.setNormalTexture(Some(export_texture(
+                device,
+                denoise.normal_image_info,
+                vk::ImageAspectFlags::COLOR,
+            )));
+            scaler.setRoughnessTexture(Some(export_texture(
+                device,
+                denoise.roughness_image_info,
+                vk::ImageAspectFlags::COLOR,
+            )));
 
             if let Some(specular_hit) = denoise.specular_hit_distance_image_info {
-                scaler.setSpecularHitDistanceTexture(Some(export_texture(device, specular_hit, vk::ImageAspectFlags::COLOR)));
+                scaler.setSpecularHitDistanceTexture(Some(export_texture(
+                    device,
+                    specular_hit,
+                    vk::ImageAspectFlags::COLOR,
+                )));
             }
             if let Some(strength) = denoise.denoise_strength_mask_image_info {
-                scaler.setDenoiseStrengthMaskTexture(Some(export_texture(device, strength, vk::ImageAspectFlags::COLOR)));
+                scaler.setDenoiseStrengthMaskTexture(Some(export_texture(
+                    device,
+                    strength,
+                    vk::ImageAspectFlags::COLOR,
+                )));
             }
             if let Some(overlay) = denoise.transparency_overlay_image_info {
-                scaler.setTransparencyOverlayTexture(Some(export_texture(device, overlay, vk::ImageAspectFlags::COLOR)));
+                scaler.setTransparencyOverlayTexture(Some(export_texture(
+                    device,
+                    overlay,
+                    vk::ImageAspectFlags::COLOR,
+                )));
             }
 
             set_denoise_matrices(
@@ -884,7 +963,8 @@ unsafe fn set_denoise_matrices(
     fn to_simd(matrix: [[f32; 4]; 4]) -> SimdFloat4x4 {
         // Each column is four contiguous floats — layout-compatible with float32x4_t.
         SimdFloat4x4 {
-            columns: matrix.map(|column| unsafe { core::mem::transmute::<[f32; 4], float32x4_t>(column) }),
+            columns: matrix
+                .map(|column| unsafe { core::mem::transmute::<[f32; 4], float32x4_t>(column) }),
         }
     }
 
@@ -926,8 +1006,10 @@ fn denoised_supported_image_properties(
     use SuperResolutionImageUseFlags as Use;
     use vk::Format;
 
-    const NORMAL_FORMATS: &[Format] =
-        &[Format::R16G16B16A16_SFLOAT, Format::A2B10G10R10_UNORM_PACK32];
+    const NORMAL_FORMATS: &[Format] = &[
+        Format::R16G16B16A16_SFLOAT,
+        Format::A2B10G10R10_UNORM_PACK32,
+    ];
     const HIT_DISTANCE_FORMATS: &[Format] = &[Format::R16_SFLOAT, Format::R32_SFLOAT];
     let sampled = vk::ImageUsageFlags::SAMPLED;
     let storage = vk::ImageUsageFlags::STORAGE;
@@ -935,26 +1017,42 @@ fn denoised_supported_image_properties(
     let entries: [(Use, &[Format], vk::ImageUsageFlags); 13] = [
         (Use::SOURCE, TEMPORAL_COLOR_FORMATS, sampled),
         (Use::DESTINATION, TEMPORAL_COLOR_FORMATS, storage),
-        (Use::DEPTH, &[Format::R32_SFLOAT, Format::D32_SFLOAT], sampled),
+        (
+            Use::DEPTH,
+            &[Format::R32_SFLOAT, Format::D32_SFLOAT],
+            sampled,
+        ),
         (Use::MOTION_VECTORS, &[Format::R16G16_SFLOAT], sampled),
         (Use::REACTIVE_MASK, &[Format::R8_UNORM], sampled),
         (Use::EXPOSURE_SCALE, &[Format::R16_SFLOAT], sampled),
         (Use::DIFFUSE_ALBEDO, TEMPORAL_COLOR_FORMATS, sampled),
         (Use::SPECULAR_ALBEDO, TEMPORAL_COLOR_FORMATS, sampled),
         (Use::NORMAL, NORMAL_FORMATS, sampled),
-        (Use::ROUGHNESS, &[Format::R8_UNORM, Format::R16_SFLOAT], sampled),
+        (
+            Use::ROUGHNESS,
+            &[Format::R8_UNORM, Format::R16_SFLOAT],
+            sampled,
+        ),
         (Use::SPECULAR_HIT_DISTANCE, HIT_DISTANCE_FORMATS, sampled),
         (Use::DENOISE_STRENGTH_MASK, &[Format::R8_UNORM], sampled),
-        (Use::TRANSPARENCY_OVERLAY, &[Format::R16G16B16A16_SFLOAT], sampled),
+        (
+            Use::TRANSPARENCY_OVERLAY,
+            &[Format::R16G16B16A16_SFLOAT],
+            sampled,
+        ),
     ];
 
     let mut properties = Vec::new();
     for (flag, formats, image_usage_flags) in entries {
         if image_use.contains(flag) {
-            properties.extend(formats.iter().map(|&format| SuperResolutionImageProperties {
-                format,
-                image_usage_flags,
-            }));
+            properties.extend(
+                formats
+                    .iter()
+                    .map(|&format| SuperResolutionImageProperties {
+                        format,
+                        image_usage_flags,
+                    }),
+            );
         }
     }
     properties
@@ -988,17 +1086,37 @@ fn temporal_supported_image_properties(
 ) -> Vec<SuperResolutionImageProperties> {
     let mut properties = Vec::new();
     for (flag, role) in [
-        (SuperResolutionImageUseFlags::SOURCE, TemporalTextureRole::Color),
-        (SuperResolutionImageUseFlags::DESTINATION, TemporalTextureRole::Output),
-        (SuperResolutionImageUseFlags::DEPTH, TemporalTextureRole::Depth),
-        (SuperResolutionImageUseFlags::MOTION_VECTORS, TemporalTextureRole::Motion),
-        (SuperResolutionImageUseFlags::REACTIVE_MASK, TemporalTextureRole::ReactiveMask),
+        (
+            SuperResolutionImageUseFlags::SOURCE,
+            TemporalTextureRole::Color,
+        ),
+        (
+            SuperResolutionImageUseFlags::DESTINATION,
+            TemporalTextureRole::Output,
+        ),
+        (
+            SuperResolutionImageUseFlags::DEPTH,
+            TemporalTextureRole::Depth,
+        ),
+        (
+            SuperResolutionImageUseFlags::MOTION_VECTORS,
+            TemporalTextureRole::Motion,
+        ),
+        (
+            SuperResolutionImageUseFlags::REACTIVE_MASK,
+            TemporalTextureRole::ReactiveMask,
+        ),
     ] {
         if image_use.contains(flag) {
             let (formats, image_usage_flags) = role.supported();
-            properties.extend(formats.iter().map(|&format| {
-                SuperResolutionImageProperties { format, image_usage_flags }
-            }));
+            properties.extend(
+                formats
+                    .iter()
+                    .map(|&format| SuperResolutionImageProperties {
+                        format,
+                        image_usage_flags,
+                    }),
+            );
         }
     }
 

@@ -105,11 +105,7 @@ impl sys::NVSDK_NGX_FeatureDiscoveryInfo {
     /// `app_data_path`, `project_id`, and `engine_version` must all remain alive
     /// for as long as the returned struct is used by NGX (it stores pointers into
     /// them). `app_data_path` must be NUL-terminated.
-    pub fn new(
-        app_data_path: &[sys::wchar_t],
-        project_id: &CStr,
-        engine_version: &CStr,
-    ) -> Self {
+    pub fn new(app_data_path: &[sys::wchar_t], project_id: &CStr, engine_version: &CStr) -> Self {
         debug_assert!(
             app_data_path.last() == Some(&0),
             "ApplicationDataPath must be NUL-terminated"
@@ -585,17 +581,34 @@ pub(crate) const ENGINES: [SuperResolutionEngine; 1] = [SuperResolutionEngine::D
 /// DLAA (1.0), UltraQuality (~0.77), Quality (0.667), Balanced (~0.58),
 /// Performance (0.5), UltraPerformance (~0.33).
 const SCALING_FACTORS: [ScalingFactor; 6] = [
-    ScalingFactor { numerator: 1, denominator: 1 }, // 1.00x — DLAA
-    ScalingFactor { numerator: 13, denominator: 10 }, // 1.30x — UltraQuality
-    ScalingFactor { numerator: 3, denominator: 2 }, // 1.50x — Quality
-    ScalingFactor { numerator: 12, denominator: 7 }, // 1.71x — Balanced
-    ScalingFactor { numerator: 2, denominator: 1 }, // 2.00x — Performance
-    ScalingFactor { numerator: 3, denominator: 1 }, // 3.00x — UltraPerformance
+    ScalingFactor {
+        numerator: 1,
+        denominator: 1,
+    }, // 1.00x — DLAA
+    ScalingFactor {
+        numerator: 13,
+        denominator: 10,
+    }, // 1.30x — UltraQuality
+    ScalingFactor {
+        numerator: 3,
+        denominator: 2,
+    }, // 1.50x — Quality
+    ScalingFactor {
+        numerator: 12,
+        denominator: 7,
+    }, // 1.71x — Balanced
+    ScalingFactor {
+        numerator: 2,
+        denominator: 1,
+    }, // 2.00x — Performance
+    ScalingFactor {
+        numerator: 3,
+        denominator: 1,
+    }, // 3.00x — UltraPerformance
 ];
 
 /// Color formats DLSS-RR accepts for the source color and upscaled output.
-const COLOR_FORMATS: &[vk::Format] =
-    &[vk::Format::R16G16B16A16_SFLOAT, vk::Format::R8G8B8A8_UNORM];
+const COLOR_FORMATS: &[vk::Format] = &[vk::Format::R16G16B16A16_SFLOAT, vk::Format::R8G8B8A8_UNORM];
 
 /// Builds a fixed-size, NUL-padded engine name array from a byte string.
 fn engine_name(name: &[u8]) -> [c_char; MAX_SUPER_RESOLUTION_NAME_SIZE] {
@@ -640,8 +653,10 @@ pub(crate) fn engine_properties(
         "unknown super resolution engine for the DLSS backend"
     );
 
-    let mut supported_scaling_factors =
-        [ScalingFactor { numerator: 0, denominator: 1 }; MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
+    let mut supported_scaling_factors = [ScalingFactor {
+        numerator: 0,
+        denominator: 1,
+    }; MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT];
     supported_scaling_factors[..SCALING_FACTORS.len()].copy_from_slice(&SCALING_FACTORS);
 
     SuperResolutionEngineProperties {
@@ -667,7 +682,10 @@ pub(crate) fn engine_properties(
             MAX_SUPER_RESOLUTION_QUEUE_FAMILY_COUNT],
         supported_scaling_factor_count: SCALING_FACTORS.len() as u32,
         supported_scaling_factors,
-        max_destination_region_size: vk::Extent2D { width: 16384, height: 16384 },
+        max_destination_region_size: vk::Extent2D {
+            width: 16384,
+            height: 16384,
+        },
         max_supported_concurrent_session_dispatches: 1,
     }
 }
@@ -687,7 +705,11 @@ pub(crate) fn engine_supported_image_properties(
     let entries: [(Use, &[Format], vk::ImageUsageFlags); 9] = [
         (Use::SOURCE, COLOR_FORMATS, storage),
         (Use::DESTINATION, COLOR_FORMATS, storage),
-        (Use::DEPTH, &[Format::R32_SFLOAT, Format::D32_SFLOAT], storage),
+        (
+            Use::DEPTH,
+            &[Format::R32_SFLOAT, Format::D32_SFLOAT],
+            storage,
+        ),
         (Use::MOTION_VECTORS, &[Format::R16G16_SFLOAT], storage),
         (Use::NORMAL, &[Format::R16G16B16A16_SFLOAT], storage),
         (
@@ -711,10 +733,14 @@ pub(crate) fn engine_supported_image_properties(
     let mut properties = Vec::new();
     for (flag, formats, image_usage_flags) in entries {
         if image_use.contains(flag) {
-            properties.extend(formats.iter().map(|&format| SuperResolutionImageProperties {
-                format,
-                image_usage_flags,
-            }));
+            properties.extend(
+                formats
+                    .iter()
+                    .map(|&format| SuperResolutionImageProperties {
+                        format,
+                        image_usage_flags,
+                    }),
+            );
         }
     }
     properties
@@ -777,7 +803,9 @@ fn perf_quality_for(
 
 /// Translates a [`SuperResolutionSessionCreateInfo`] into NGX DLSS-RR create
 /// params.
-fn build_create_params(ci: &SuperResolutionSessionCreateInfo) -> sys::NVSDK_NGX_DLSSD_Create_Params {
+fn build_create_params(
+    ci: &SuperResolutionSessionCreateInfo,
+) -> sys::NVSDK_NGX_DLSSD_Create_Params {
     use sys::NVSDK_NGX_DLSS_Feature_Flags as Flag;
 
     let mut flags = Flag::None;
@@ -833,10 +861,7 @@ fn build_create_params(ci: &SuperResolutionSessionCreateInfo) -> sys::NVSDK_NGX_
         InHeight: ci.max_source_region_size.height,
         InTargetWidth: ci.destination_region_size.width,
         InTargetHeight: ci.destination_region_size.height,
-        InPerfQualityValue: perf_quality_for(
-            ci.destination_region_size,
-            ci.max_source_region_size,
-        ),
+        InPerfQualityValue: perf_quality_for(ci.destination_region_size, ci.max_source_region_size),
         InFeatureCreateFlags: flags,
         InEnableOutputSubrects: ci
             .flags
@@ -852,7 +877,7 @@ pub(crate) fn create_session(
     pipeline_cache: &PipelineCache,
     create_info: &SuperResolutionSessionCreateInfo,
     application_info: &crate::SuperResolutionApplicationInfo<'_>,
-) -> VkResult<crate::SuperResolutionSession> {
+) -> VkResult<DlssSession> {
     assert!(
         create_info.engine == SuperResolutionEngine::DLSS_RR,
         "unknown super resolution engine for the DLSS backend"
@@ -864,15 +889,12 @@ pub(crate) fn create_session(
     ensure_runtime(pipeline_cache.device(), application_info)
         .map_err(|_| vk::Result::ERROR_INITIALIZATION_FAILED)?;
 
-    Ok(crate::SuperResolutionSession {
-        device: pipeline_cache.device().clone(),
-        dlss: DlssSession {
-            create_params: build_create_params(create_info),
-            feature: Mutex::new(None),
-            destination_extent: create_info.destination_region_size,
-            mv_scale_x: create_info.motion_vector_scale_x,
-            mv_scale_y: create_info.motion_vector_scale_y,
-        },
+    Ok(DlssSession {
+        create_params: build_create_params(create_info),
+        feature: Mutex::new(None),
+        destination_extent: create_info.destination_region_size,
+        mv_scale_x: create_info.motion_vector_scale_x,
+        mv_scale_y: create_info.motion_vector_scale_y,
     })
 }
 
@@ -880,14 +902,11 @@ pub(crate) fn create_session(
 ///
 /// Records NGX feature creation into the encoder's command buffer and stores the
 /// resulting feature on the session.
-pub(crate) fn initialize_session(
-    encoder: &mut CommandEncoder,
-    session: &crate::SuperResolutionSession,
-) {
+pub(crate) fn initialize_session(encoder: &mut CommandEncoder, session: &DlssSession) {
     let cmd_buffer = encoder.buffer().vk_handle();
-    match create_dlssd_feature(cmd_buffer, &session.dlss.create_params) {
+    match create_dlssd_feature(cmd_buffer, &session.create_params) {
         Ok(feature) => {
-            *session.dlss.feature.lock().unwrap() = Some(feature);
+            *session.feature.lock().unwrap() = Some(feature);
         }
         Err(e) => {
             tracing::error!(target: "ngx", "DLSS-RR feature creation failed: {e}");
@@ -950,27 +969,38 @@ fn flatten(m: [[f32; 4]; 4]) -> [f32; 16] {
 /// Implements [`crate::SuperResolutionCommandEncoder::dispatch_super_resolution`].
 pub(crate) fn dispatch(
     encoder: &mut CommandEncoder,
-    session: &crate::SuperResolutionSession,
+    session: &DlssSession,
     info: &SuperResolutionDispatchInfo,
 ) {
-    let feature_guard = session.dlss.feature.lock().unwrap();
+    let feature_guard = session.feature.lock().unwrap();
     let Some(feature) = feature_guard.as_ref() else {
         tracing::warn!(target: "ngx", "DLSS-RR dispatch skipped; session not initialized");
         return;
     };
 
     let src = info.source_size;
-    let dst = session.dlss.destination_extent;
-    let packed_roughness = session.dlss.create_params.InRoughnessMode
-        == sys::NVSDK_NGX_DLSS_Roughness_Mode::Packed;
+    let dst = session.destination_extent;
+    let packed_roughness =
+        session.create_params.InRoughnessMode == sys::NVSDK_NGX_DLSS_Roughness_Mode::Packed;
     let denoise = info.denoise_info;
 
     // SAFETY: every image create-info originates from the caller's live G-buffer
     // resources, which must outlive this command buffer's GPU execution.
     unsafe {
-        let mut color = make_resource(encoder, info.source_image_info, src.width, src.height, false);
-        let mut output =
-            make_resource(encoder, info.destination_image_info, dst.width, dst.height, true);
+        let mut color = make_resource(
+            encoder,
+            info.source_image_info,
+            src.width,
+            src.height,
+            false,
+        );
+        let mut output = make_resource(
+            encoder,
+            info.destination_image_info,
+            dst.width,
+            dst.height,
+            true,
+        );
         let mut depth = info
             .source_depth_image_info
             .map(|d| make_resource(encoder, d, src.width, src.height, false));
@@ -978,18 +1008,38 @@ pub(crate) fn dispatch(
             .motion_info
             .and_then(|m| m.motion_vectors_image_info)
             .map(|mv| make_resource(encoder, mv, src.width, src.height, false));
-        let mut diffuse = denoise
-            .map(|d| make_resource(encoder, d.diffuse_albedo_image_info, src.width, src.height, false));
+        let mut diffuse = denoise.map(|d| {
+            make_resource(
+                encoder,
+                d.diffuse_albedo_image_info,
+                src.width,
+                src.height,
+                false,
+            )
+        });
         let mut specular = denoise.map(|d| {
-            make_resource(encoder, d.specular_albedo_image_info, src.width, src.height, false)
+            make_resource(
+                encoder,
+                d.specular_albedo_image_info,
+                src.width,
+                src.height,
+                false,
+            )
         });
         let mut normals = denoise
             .map(|d| make_resource(encoder, d.normal_image_info, src.width, src.height, false));
         let mut roughness = if packed_roughness {
             None
         } else {
-            denoise
-                .map(|d| make_resource(encoder, d.roughness_image_info, src.width, src.height, false))
+            denoise.map(|d| {
+                make_resource(
+                    encoder,
+                    d.roughness_image_info,
+                    src.width,
+                    src.height,
+                    false,
+                )
+            })
         };
         let mut specular_hit = denoise
             .and_then(|d| d.specular_hit_distance_image_info)
@@ -1032,8 +1082,8 @@ pub(crate) fn dispatch(
             Width: src.width,
             Height: src.height,
         };
-        eval.InMVScaleX = session.dlss.mv_scale_x;
-        eval.InMVScaleY = session.dlss.mv_scale_y;
+        eval.InMVScaleX = session.mv_scale_x;
+        eval.InMVScaleY = session.mv_scale_y;
         if let Some(m) = info.motion_info {
             eval.InJitterOffsetX = m.texel_jitter_x;
             eval.InJitterOffsetY = m.texel_jitter_y;

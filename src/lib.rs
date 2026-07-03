@@ -1,4 +1,8 @@
-use ash::{VkResult, vk::{self, Flags}, vk_bitflags_wrapped};
+use ash::{
+    VkResult,
+    vk::{self, Flags},
+    vk_bitflags_wrapped,
+};
 use std::ffi::CStr;
 use std::path::Path;
 
@@ -7,6 +11,8 @@ mod metalfx;
 
 #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
 mod dlss;
+
+mod blit;
 
 #[derive(Clone, Copy)]
 pub struct SuperResolutionApplicationInfo<'a> {
@@ -38,6 +44,11 @@ impl SuperResolutionEngine {
     /// `MTL4FXTemporalDenoisedScaler` — temporal upscaling combined with denoising,
     /// intended for ray-traced inputs.
     pub const METALFX_TEMPORAL_DENOISED_SCALER: SuperResolutionEngine = SuperResolutionEngine(12);
+
+    /// A single linear-filtered `vkCmdBlitImage` — single-frame spatial scaling
+    /// with no history, denoising, or sharpening. Available on every Vulkan
+    /// implementation; enumerated last as the lowest-quality fallback.
+    pub const VULKAN_BLIT: SuperResolutionEngine = SuperResolutionEngine(20);
 }
 
 #[repr(transparent)]
@@ -94,7 +105,6 @@ impl SuperResolutionImageUseFlags {
     /// Used as a transparency overlay image by a denoising engine.
     pub const TRANSPARENCY_OVERLAY: Self = Self(0x0000_2000);
 }
-
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -189,7 +199,7 @@ pub struct SuperResolutionEngineProperties {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScalingFactor {
     pub numerator: u32,
-    pub denominator: u32
+    pub denominator: u32,
 }
 
 /// Format and usage flags supported by a super resolution engine for a
@@ -294,7 +304,6 @@ pub struct SuperResolutionDescriptorHeapRanges {
     pub sampler_heap_alignment: vk::DeviceSize,
 }
 
-
 pub trait SuperResolutionPhysicalDevice {
     fn enumerate_super_resolution_engines(
         &self,
@@ -346,27 +355,29 @@ pub fn super_resolution_required_instance_extensions(
 }
 
 impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice {
-        fn enumerate_super_resolution_engines(
+    fn enumerate_super_resolution_engines(
         &self,
         application_info: &SuperResolutionApplicationInfo<'_>,
     ) -> VkResult<Vec<SuperResolutionEngine>> {
+        let _ = application_info;
+        let mut engines = Vec::new();
         #[cfg(target_vendor = "apple")]
-        {
-            let _ = application_info;
-            return Ok(metalfx::ENGINES.to_vec());
-        }
+        engines.extend_from_slice(&metalfx::ENGINES);
         #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
-        {
-            return Ok(dlss::enumerate_engines(self, application_info));
-        }
-        #[allow(unreachable_code)]
-        return Ok(Vec::new())
+        engines.extend_from_slice(&dlss::enumerate_engines(self, application_info));
+        // The blit engine works on any Vulkan implementation; it is enumerated
+        // last so callers picking by order prefer the vendor engines.
+        engines.push(SuperResolutionEngine::VULKAN_BLIT);
+        Ok(engines)
     }
 
     fn get_super_resolution_engine_properties(
         &self,
         engine: SuperResolutionEngine,
     ) -> SuperResolutionEngineProperties {
+        if engine == SuperResolutionEngine::VULKAN_BLIT {
+            return blit::engine_properties(self);
+        }
         #[cfg(target_vendor = "apple")]
         {
             return metalfx::engine_properties(self, engine);
@@ -374,6 +385,10 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
         #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
         {
             return dlss::engine_properties(self, engine);
+        }
+        #[allow(unreachable_code)]
+        {
+            panic!("unknown super resolution engine")
         }
     }
 
@@ -384,9 +399,14 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
         engine: SuperResolutionEngine,
         image_use: SuperResolutionImageUseFlags,
     ) -> VkResult<Vec<SuperResolutionImageProperties>> {
+        if engine == SuperResolutionEngine::VULKAN_BLIT {
+            return Ok(blit::engine_supported_image_properties(image_use));
+        }
         #[cfg(target_vendor = "apple")]
         {
-            return Ok(metalfx::engine_supported_image_properties(engine, image_use));
+            return Ok(metalfx::engine_supported_image_properties(
+                engine, image_use,
+            ));
         }
         #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
         {
@@ -410,6 +430,12 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
         {
             return dlss::required_device_extensions(builder, application_info);
         }
+        // The blit engine needs no extensions.
+        #[cfg(not(any(target_vendor = "apple", feature = "dlss")))]
+        {
+            let _ = (builder, application_info);
+            Ok(())
+        }
     }
 }
 
@@ -432,8 +458,12 @@ pub trait SuperResolutionDevice {
 impl SuperResolutionDevice for pumicite::Device {
     fn get_super_resolution_session_memory_requirements(
         &self,
-        _session_create_info: &SuperResolutionSessionCreateInfo,
+        session_create_info: &SuperResolutionSessionCreateInfo,
     ) -> VkResult<Vec<SuperResolutionSessionMemoryRequirements>> {
+        // A blit needs no internal memory.
+        if session_create_info.engine == SuperResolutionEngine::VULKAN_BLIT {
+            return Ok(Vec::new());
+        }
         #[cfg(target_vendor = "apple")]
         {
             return Ok(metalfx::session_memory_requirements());
@@ -448,8 +478,17 @@ impl SuperResolutionDevice for pumicite::Device {
 
     fn get_super_resolution_session_descriptor_heap_ranges(
         &self,
-        _session_create_info: &SuperResolutionSessionCreateInfo,
+        session_create_info: &SuperResolutionSessionCreateInfo,
     ) -> VkResult<SuperResolutionDescriptorHeapRanges> {
+        // A blit needs no internal descriptors.
+        if session_create_info.engine == SuperResolutionEngine::VULKAN_BLIT {
+            return Ok(SuperResolutionDescriptorHeapRanges {
+                resource_heap_size: 0,
+                resource_heap_alignment: 0,
+                sampler_heap_size: 0,
+                sampler_heap_alignment: 0,
+            });
+        }
         #[cfg(target_vendor = "apple")]
         {
             return Ok(metalfx::session_descriptor_heap_ranges());
@@ -473,12 +512,19 @@ impl SuperResolutionDevice for pumicite::Device {
 /// and be initialized.
 pub struct SuperResolutionSession {
     device: pumicite::Device,
+    backend: SessionBackend,
+}
+
+/// The engine-specific state behind a [`SuperResolutionSession`].
+enum SessionBackend {
     /// The backing MetalFX scaler. Retained for the session's lifetime.
     #[cfg(target_vendor = "apple")]
-    scaler: metalfx::Scaler,
+    MetalFx(metalfx::Scaler),
     /// The backing DLSS-RR session (deferred NGX feature + create params).
     #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
-    dlss: dlss::DlssSession,
+    Dlss(dlss::DlssSession),
+    /// The backing blit session.
+    Blit(blit::BlitSession),
 }
 
 impl pumicite::HasDevice for SuperResolutionSession {
@@ -494,19 +540,35 @@ impl SuperResolutionSession {
         create_info: &SuperResolutionSessionCreateInfo,
         application_info: &SuperResolutionApplicationInfo<'_>,
     ) -> VkResult<SuperResolutionSession> {
+        use pumicite::HasDevice;
+        let _ = application_info; // Only the DLSS backend has an application identity.
+        if create_info.engine == SuperResolutionEngine::VULKAN_BLIT {
+            return Ok(SuperResolutionSession {
+                device: pipeline_cache.device().clone(),
+                backend: SessionBackend::Blit(blit::create_session(create_info)?),
+            });
+        }
         #[cfg(target_vendor = "apple")]
         {
-            let _ = application_info; // MetalFX has no application identity.
-            return metalfx::create_session(pipeline_cache, create_info);
+            return Ok(SuperResolutionSession {
+                device: pipeline_cache.device().clone(),
+                backend: SessionBackend::MetalFx(metalfx::create_session(create_info)?),
+            });
         }
         #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
         {
-            return dlss::create_session(pipeline_cache, create_info, application_info);
+            return Ok(SuperResolutionSession {
+                device: pipeline_cache.device().clone(),
+                backend: SessionBackend::Dlss(dlss::create_session(
+                    pipeline_cache,
+                    create_info,
+                    application_info,
+                )?),
+            });
         }
         // No backend owns this engine (none were enumerated).
         #[cfg(not(any(target_vendor = "apple", feature = "dlss")))]
         {
-            let _ = application_info;
             Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
         }
     }
@@ -535,20 +597,20 @@ impl SuperResolutionSession {
         destination_region_size: vk::Extent2D,
         source_region_size: vk::Extent2D,
     ) -> VkResult<Vec<(f32, f32)>> {
-        #[cfg(target_vendor = "apple")]
-        {
-            return metalfx::recommended_jitter_pattern(
-                self,
+        match &self.backend {
+            #[cfg(target_vendor = "apple")]
+            SessionBackend::MetalFx(scaler) => metalfx::recommended_jitter_pattern(
+                scaler,
                 destination_region_size,
                 source_region_size,
-            );
+            ),
+            #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+            SessionBackend::Dlss(_) => {
+                dlss::recommended_jitter_pattern(destination_region_size, source_region_size)
+            }
+            // A blit is single-frame; it uses no jitter.
+            SessionBackend::Blit(_) => Err(vk::Result::ERROR_FEATURE_NOT_PRESENT),
         }
-        #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
-        {
-            return dlss::recommended_jitter_pattern(destination_region_size, source_region_size);
-        }
-        #[allow(unreachable_code)]
-        Err(vk::Result::ERROR_FEATURE_NOT_PRESENT)
     }
 }
 
@@ -683,15 +745,13 @@ pub trait SuperResolutionCommandEncoder {
 
 impl SuperResolutionCommandEncoder for pumicite::command::CommandEncoder<'_> {
     fn initialize_super_resolution_session(&mut self, session: &SuperResolutionSession) {
-        #[cfg(target_vendor = "apple")]
-        {
-            metalfx::initialize_session(self, session);
-            return;
-        }
-#[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
-        {
-            dlss::initialize_session(self, session);
-            return;
+        match &session.backend {
+            #[cfg(target_vendor = "apple")]
+            SessionBackend::MetalFx(scaler) => metalfx::initialize_session(self, scaler),
+            #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+            SessionBackend::Dlss(dlss) => dlss::initialize_session(self, dlss),
+            // A blit session is ready to use immediately after creation.
+            SessionBackend::Blit(_) => {}
         }
     }
 
@@ -700,15 +760,12 @@ impl SuperResolutionCommandEncoder for pumicite::command::CommandEncoder<'_> {
         session: &SuperResolutionSession,
         dispatch_info: &SuperResolutionDispatchInfo,
     ) {
-        #[cfg(target_vendor = "apple")]
-        {
-            metalfx::dispatch(self, session, dispatch_info);
-            return;
-        }
-#[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
-        {
-            dlss::dispatch(self, session, dispatch_info);
-            return;
+        match &session.backend {
+            #[cfg(target_vendor = "apple")]
+            SessionBackend::MetalFx(scaler) => metalfx::dispatch(self, scaler, dispatch_info),
+            #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
+            SessionBackend::Dlss(dlss) => dlss::dispatch(self, dlss, dispatch_info),
+            SessionBackend::Blit(blit) => blit::dispatch(self, blit, dispatch_info),
         }
     }
 }

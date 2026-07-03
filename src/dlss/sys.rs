@@ -9,10 +9,15 @@
 //! Vulkan handle and enum types are re-exported from `ash` so callers don't need
 //! to convert between FFI primitive types and ash wrappers.
 
-#![allow(dead_code, non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(
+    dead_code,
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals
+)]
 
-use core::ffi::{c_char, c_int, c_void};
 use ash::vk;
+use core::ffi::{c_char, c_int, c_void};
 use std::ffi::{c_uint, c_ulonglong};
 
 /// `wchar_t` — 16-bit on Windows (UTF-16), 32-bit on Linux (UTF-32).
