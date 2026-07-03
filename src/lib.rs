@@ -317,29 +317,31 @@ pub trait SuperResolutionPhysicalDevice {
     /// Vulkan device extensions that must be enabled at device-creation time on
     /// this physical device for a super resolution backend to initialize.
     fn super_resolution_required_device_extensions(
-        &self,
+        builder: &mut pumicite::device::DeviceBuilder,
         application_info: &SuperResolutionApplicationInfo<'_>,
-    ) -> Vec<&'static CStr>;
+    ) -> VkResult<()>;
 }
 
 /// Vulkan instance extensions that must be enabled at instance-creation time for
 /// a super resolution backend to initialize.
 pub fn super_resolution_required_instance_extensions(
+    instance_builder: &mut pumicite::instance::InstanceBuilder,
     application_info: &SuperResolutionApplicationInfo<'_>,
-) -> Vec<&'static CStr> {
+) -> VkResult<()> {
     #[cfg(target_vendor = "apple")]
     {
         let _ = application_info;
-        return Vec::new();
+        let _ = instance_builder;
+        return Ok(());
     }
     #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
     {
-        return dlss::required_instance_extensions(application_info);
+        return dlss::required_instance_extensions(instance_builder, application_info);
     }
     #[allow(unreachable_code)]
     {
         let _ = application_info;
-        Vec::new()
+        Ok(())
     }
 }
 
@@ -373,7 +375,6 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
         {
             return dlss::engine_properties(self, engine);
         }
-        panic!("Unknown upscaler engine");
     }
 
     /// Enumerates the image properties supported by a super resolution `engine`
@@ -396,22 +397,18 @@ impl SuperResolutionPhysicalDevice for pumicite::physical_device::PhysicalDevice
     }
 
     fn super_resolution_required_device_extensions(
-        &self,
+        builder: &mut pumicite::device::DeviceBuilder,
         application_info: &SuperResolutionApplicationInfo<'_>,
-    ) -> Vec<&'static CStr> {
+    ) -> VkResult<()> {
         #[cfg(target_vendor = "apple")]
         {
             let _ = application_info;
-            return vec![ash::ext::metal_objects::NAME];
+            builder.enable_extension::<ash::ext::metal_objects::Meta>()?;
+            Ok(())
         }
         #[cfg(all(not(target_vendor = "apple"), feature = "dlss"))]
         {
-            return dlss::required_device_extensions(self, application_info);
-        }
-        #[allow(unreachable_code)]
-        {
-            let _ = application_info;
-            Vec::new()
+            return dlss::required_device_extensions(builder, application_info);
         }
     }
 }

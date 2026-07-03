@@ -344,8 +344,9 @@ fn check_dlss_rr_available(
 }
 
 pub(crate) fn required_instance_extensions(
+    instance_builder: &mut pumicite::instance::InstanceBuilder,
     app_info: &crate::SuperResolutionApplicationInfo<'_>,
-) -> Vec<&'static CStr> {
+) -> VkResult<()> {
     let app_data = encode_app_data_path(app_info.application_data_path);
     let info = sys::NVSDK_NGX_FeatureDiscoveryInfo::new(
         &app_data,
@@ -364,24 +365,25 @@ pub(crate) fn required_instance_extensions(
         )
     };
     if result.result().is_err() || properties.is_null() {
-        return Vec::new();
+        return Ok(());
     }
     let props = unsafe { std::slice::from_raw_parts(properties, count as usize) };
-    props
-        .iter()
-        .map(|ext| unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) })
-        .collect()
+    for extension in props {
+        instance_builder.enable_extension_named(extension.extension_name_as_c_str().unwrap())?;
+    }
+    Ok(())
 }
 
 pub(crate) fn required_device_extensions(
-    physical_device: &PhysicalDevice,
+    device_builder: &mut pumicite::device::DeviceBuilder,
     app_info: &crate::SuperResolutionApplicationInfo<'_>,
-) -> Vec<&'static CStr> {
-    let driver = physical_device
+) -> VkResult<()> {
+    let driver = device_builder
+        .physical_device()
         .properties()
         .get::<vk::PhysicalDeviceDriverProperties>();
     if driver.driver_id != vk::DriverId::NVIDIA_PROPRIETARY {
-        return Vec::new();
+        return Ok(());
     }
     let app_data = encode_app_data_path(app_info.application_data_path);
     let info = sys::NVSDK_NGX_FeatureDiscoveryInfo::new(
@@ -395,8 +397,8 @@ pub(crate) fn required_device_extensions(
     // NGX writes `count`/`properties` only on success and the array is static.
     let result = unsafe {
         sys::NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(
-            physical_device.instance().handle(),
-            physical_device.vk_handle(),
+            device_builder.physical_device().instance().handle(),
+            device_builder.physical_device().vk_handle(),
             &info,
             &mut count,
             &mut properties,
@@ -404,13 +406,13 @@ pub(crate) fn required_device_extensions(
     };
     if result.result().is_err() || properties.is_null() {
         tracing::warn!(target: "ngx", "GetFeatureDeviceExtensionRequirements failed: {result:?}");
-        return Vec::new();
+        return Ok(());
     }
     let props = unsafe { std::slice::from_raw_parts(properties, count as usize) };
-    props
-        .iter()
-        .map(|ext| unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) })
-        .collect()
+    for extension in props {
+        device_builder.enable_extension_named(extension.extension_name_as_c_str().unwrap())?;
+    }
+    Ok(())
 }
 
 /// Creates a DLSS-RR feature on `cmd_buffer` (which must be recording).

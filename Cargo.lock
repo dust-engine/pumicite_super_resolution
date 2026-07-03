@@ -679,7 +679,7 @@ dependencies = [
 [[package]]
 name = "pumicite"
 version = "0.1.0"
-source = "git+https://github.com/dust-engine/pumicite.git?rev=4cb2612d84bcb80c851eb0f316afb47688ad40a3#4cb2612d84bcb80c851eb0f316afb47688ad40a3"
+source = "git+https://github.com/dust-engine/pumicite.git?rev=cada751879618a2390c81227b27a8174896152d0#cada751879618a2390c81227b27a8174896152d0"
 dependencies = [
  "ash",
  "bitvec",
@@ -722,7 +722,7 @@ dependencies = [
 [[package]]
 name = "pumicite_types"
 version = "0.1.0"
-source = "git+https://github.com/dust-engine/pumicite.git?rev=4cb2612d84bcb80c851eb0f316afb47688ad40a3#4cb2612d84bcb80c851eb0f316afb47688ad40a3"
+source = "git+https://github.com/dust-engine/pumicite.git?rev=cada751879618a2390c81227b27a8174896152d0#cada751879618a2390c81227b27a8174896152d0"
 dependencies = [
  "ash",
  "glam",
