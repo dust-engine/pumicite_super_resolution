@@ -21,8 +21,8 @@ register_toolchains("@vulkan_sdk_1.4.341.1//:all")
 # dust) that module's own rules_vulkan override applies instead.
 git_override(
     module_name = "rules_vulkan",
-    remote = "https://github.com/0xbeefd1ed/rules_vulkan",
-    commit = "85c6ca71e2cecede88985ac89568230e772a4f34",
+    remote = "https://github.com/mxpv/rules_vulkan",
+    commit = "91b9e9a26615000f86322c2798f0e06ecf11219a",
 )
 
 # -----------------------------------------------------------------------------
@@ -36,6 +36,6 @@ new_git_repository = use_repo_rule(
 new_git_repository(
     name = "dlss",
     remote = "https://github.com/NVIDIA/DLSS.git",
-    commit = "d1bef2006b41eefd9d44b0a05f123993f3acbf3c",
+    commit = "a291cc7d2cc642a51566f3dfd5376f635cd1b284",
     build_file = "//third_party:dlss.BUILD.bazel",
 )
