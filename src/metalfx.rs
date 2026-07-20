@@ -492,7 +492,17 @@ fn create_temporal_denoised_scaler(
         descriptor
             .setSpecularAlbedoTextureFormat(mtl_pixel_format(create_info.specular_albedo_format));
         descriptor.setNormalTextureFormat(mtl_pixel_format(create_info.normal_format));
-        descriptor.setRoughnessTextureFormat(mtl_pixel_format(create_info.roughness_format));
+        // MetalFX has no packed-roughness mode. When roughness is packed in the
+        // normal's alpha channel (`roughness_format` UNDEFINED — the DLSS
+        // native-packed signal), the caller instead supplies a same-format
+        // swizzle view of the normal image as the roughness input, so the
+        // descriptor's roughness format must match the normal format.
+        let roughness_format = if create_info.roughness_format == vk::Format::UNDEFINED {
+            create_info.normal_format
+        } else {
+            create_info.roughness_format
+        };
+        descriptor.setRoughnessTextureFormat(mtl_pixel_format(roughness_format));
         descriptor.setInputWidth(create_info.max_source_region_size.width as usize);
         descriptor.setInputHeight(create_info.max_source_region_size.height as usize);
         descriptor.setOutputWidth(create_info.destination_region_size.width as usize);
@@ -588,19 +598,19 @@ fn create_spatial_scaler(create_info: &SuperResolutionSessionCreateInfo) -> VkRe
         .ok_or(vk::Result::ERROR_INITIALIZATION_FAILED)
 }
 
-/// Exports the Metal texture backing the image referenced by `image_info`.
+/// Exports the Metal texture backing the image view referenced by `image_info`.
 ///
 /// # Safety
 ///
 /// The returned reference borrows a texture owned by the Vulkan implementation;
-/// it is valid while the underlying image is alive.
+/// it is valid while the underlying image view is alive.
 unsafe fn export_texture<'a>(
     device: &'a pumicite::Device,
     image_info: &SuperResolutionImageInfo,
     plane: vk::ImageAspectFlags,
 ) -> &'a ProtocolObject<dyn MTLTexture> {
     let mut texture_info = vk::ExportMetalTextureInfoEXT::default()
-        .image(image_info.view.image)
+        .image_view(image_info.view.vk_handle())
         .plane(plane);
     let mut info = vk::ExportMetalObjectsInfoEXT::default();
     info.p_next = (&mut texture_info as *mut vk::ExportMetalTextureInfoEXT).cast();

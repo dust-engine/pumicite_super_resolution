@@ -17,7 +17,7 @@ use pumicite::utils::AsVkHandle;
 use crate::{
     MAX_SUPER_RESOLUTION_NAME_SIZE, MAX_SUPER_RESOLUTION_QUEUE_FAMILY_COUNT,
     MAX_SUPER_RESOLUTION_SCALING_FACTOR_COUNT, ScalingFactor, SuperResolutionDispatchInfo,
-    SuperResolutionEngineProperties, SuperResolutionEnginePropertyFlags,
+    SuperResolutionEngineProperties, SuperResolutionEnginePropertyFlags, SuperResolutionImageInfo,
     SuperResolutionImageProperties, SuperResolutionImageUseFlags, SuperResolutionQualityFocusFlags,
     SuperResolutionSessionCreateInfo,
 };
@@ -167,18 +167,17 @@ pub(crate) fn create_session(
     })
 }
 
-/// Maps an image-info subresource range to the single-mip layers a blit region
-/// addresses.
-fn subresource_layers(range: &vk::ImageSubresourceRange) -> vk::ImageSubresourceLayers {
+/// Builds the single-mip layers a blit region addresses for `image_info`.
+///
+/// The subresource (base mip/array layer, layer count) comes from the view; the
+/// aspect from the image.
+fn subresource_layers(image_info: &SuperResolutionImageInfo) -> vk::ImageSubresourceLayers {
+    let layers = image_info.view.array_layers();
     vk::ImageSubresourceLayers {
-        aspect_mask: range.aspect_mask,
-        mip_level: range.base_mip_level,
-        base_array_layer: range.base_array_layer,
-        layer_count: if range.layer_count == vk::REMAINING_ARRAY_LAYERS {
-            1
-        } else {
-            range.layer_count
-        },
+        aspect_mask: image_info.image.aspects(),
+        mip_level: image_info.view.mip_levels().start,
+        base_array_layer: layers.start,
+        layer_count: layers.end - layers.start,
     }
 }
 
@@ -197,7 +196,7 @@ pub(crate) fn dispatch(
     let dst_size = session.destination_region_size;
 
     let region = vk::ImageBlit {
-        src_subresource: subresource_layers(&src.view.subresource_range),
+        src_subresource: subresource_layers(src),
         src_offsets: [
             vk::Offset3D {
                 x: src.view_offset.x,
@@ -210,7 +209,7 @@ pub(crate) fn dispatch(
                 z: 1,
             },
         ],
-        dst_subresource: subresource_layers(&dst.view.subresource_range),
+        dst_subresource: subresource_layers(dst),
         dst_offsets: [
             vk::Offset3D {
                 x: dst.view_offset.x,
@@ -231,9 +230,9 @@ pub(crate) fn dispatch(
     unsafe {
         encoder.device().cmd_blit_image(
             encoder.buffer().vk_handle(),
-            src.view.image,
+            src.image.vk_handle(),
             src.initial_layout,
-            dst.view.image,
+            dst.image.vk_handle(),
             dst.initial_layout,
             &[region],
             vk::Filter::LINEAR,

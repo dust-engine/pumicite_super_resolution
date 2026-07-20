@@ -615,9 +615,11 @@ impl SuperResolutionSession {
 }
 
 /// Describes an image passed into a super resolution dispatch.
-pub struct SuperResolutionImageInfo<'a> {
-    /// The image content, specified as an image view create info.
-    pub view: &'a vk::ImageViewCreateInfo<'a>,
+pub struct SuperResolutionImageInfo<'view> {
+    /// The image view
+    pub view: &'view dyn pumicite::image::ImageViewLike,
+    /// The base image of the image view
+    pub image: &'view dyn pumicite::image::ImageLike,
     /// Offset, in texels, to the region within the image used by the dispatch.
     pub view_offset: vk::Offset2D,
     /// Layout of the image at the start of the dispatch.
@@ -640,15 +642,15 @@ pub struct SuperResolutionCameraInfo {
 }
 
 /// Motion information for a super resolution dispatch.
-pub struct SuperResolutionDispatchMotionInfo<'a> {
+pub struct SuperResolutionDispatchMotionInfo<'a, 'view> {
     /// Image encoding the motion of pixels between frames, or `None` if
     /// unavailable or unused by the engine.
-    pub motion_vectors_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub motion_vectors_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
     /// Image encoding reactive information, or `None` if unavailable or unused.
-    pub reactive_mask_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub reactive_mask_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
     /// Image encoding whether per-pixel history should be considered, or `None`
     /// if unavailable or unused.
-    pub ignore_history_mask_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub ignore_history_mask_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
     /// Information about the camera used to render the scene.
     pub camera_info: SuperResolutionCameraInfo,
     /// Per-frame jitter applied in the X dimension.
@@ -658,7 +660,7 @@ pub struct SuperResolutionDispatchMotionInfo<'a> {
 }
 
 /// Exposure information for a super resolution dispatch.
-pub struct SuperResolutionDispatchExposureInfo<'a> {
+pub struct SuperResolutionDispatchExposureInfo<'a, 'view> {
     /// Pre-exposure value for HDR images; ignored if not using HDR or if auto
     /// exposure is enabled.
     pub pre_exposure: f32,
@@ -667,7 +669,7 @@ pub struct SuperResolutionDispatchExposureInfo<'a> {
     pub exposure_scale_uniform: f32,
     /// 1x1 image providing an exposure scale factor for HDR images, or `None`
     /// to use `exposure_scale_uniform`.
-    pub exposure_scale_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub exposure_scale_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
 }
 
 /// G-buffer inputs for a denoising super resolution dispatch.
@@ -675,21 +677,21 @@ pub struct SuperResolutionDispatchExposureInfo<'a> {
 /// Only used by denoising engines (e.g. the MetalFX temporal denoised scaler).
 /// The diffuse/specular albedo, normal, and roughness images are required; the
 /// remaining images are optional and may be `None`.
-pub struct SuperResolutionDispatchDenoiseInfo<'a> {
+pub struct SuperResolutionDispatchDenoiseInfo<'a, 'view> {
     /// Diffuse albedo G-buffer image.
-    pub diffuse_albedo_image_info: &'a SuperResolutionImageInfo<'a>,
+    pub diffuse_albedo_image_info: &'a SuperResolutionImageInfo<'view>,
     /// Specular albedo G-buffer image.
-    pub specular_albedo_image_info: &'a SuperResolutionImageInfo<'a>,
+    pub specular_albedo_image_info: &'a SuperResolutionImageInfo<'view>,
     /// World-space normal G-buffer image.
-    pub normal_image_info: &'a SuperResolutionImageInfo<'a>,
+    pub normal_image_info: &'a SuperResolutionImageInfo<'view>,
     /// Roughness G-buffer image.
-    pub roughness_image_info: &'a SuperResolutionImageInfo<'a>,
+    pub roughness_image_info: &'a SuperResolutionImageInfo<'view>,
     /// Specular hit-distance image, or `None` if unused.
-    pub specular_hit_distance_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub specular_hit_distance_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
     /// Denoise strength mask image, or `None` if unused.
-    pub denoise_strength_mask_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub denoise_strength_mask_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
     /// Transparency overlay image, or `None` if unused.
-    pub transparency_overlay_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub transparency_overlay_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
     /// Column-major world-to-view (camera) matrix.
     pub world_to_view_matrix: [[f32; 4]; 4],
     /// Column-major view-to-clip (projection) matrix.
@@ -697,7 +699,7 @@ pub struct SuperResolutionDispatchDenoiseInfo<'a> {
 }
 
 /// Parameters driving a single super resolution upscaling dispatch.
-pub struct SuperResolutionDispatchInfo<'a> {
+pub struct SuperResolutionDispatchInfo<'a, 'view> {
     /// Index of the dispatch. Must be less than the session's
     /// `max_concurrent_dispatches`, and unique across overlapping concurrent
     /// dispatches (including across swapchain images).
@@ -707,21 +709,21 @@ pub struct SuperResolutionDispatchInfo<'a> {
     /// The single quality focus to use for this dispatch.
     pub quality_focus: SuperResolutionQualityFocusFlags,
     /// The destination color image.
-    pub destination_image_info: &'a SuperResolutionImageInfo<'a>,
+    pub destination_image_info: &'a SuperResolutionImageInfo<'view>,
     /// The source color image.
-    pub source_image_info: &'a SuperResolutionImageInfo<'a>,
+    pub source_image_info: &'a SuperResolutionImageInfo<'view>,
     /// The source depth image, or `None` if the engine does not use depth.
-    pub source_depth_image_info: Option<&'a SuperResolutionImageInfo<'a>>,
+    pub source_depth_image_info: Option<&'a SuperResolutionImageInfo<'view>>,
     /// Size of the source content.
     pub source_size: vk::Extent2D,
     /// Amount of sharpening to apply, in the range 0.0 to 1.0.
     pub sharpness: f32,
     /// Motion information, or `None` if the engine is not temporal.
-    pub motion_info: Option<&'a SuperResolutionDispatchMotionInfo<'a>>,
+    pub motion_info: Option<&'a SuperResolutionDispatchMotionInfo<'a, 'view>>,
     /// Exposure information, or `None` to use auto/default exposure.
-    pub exposure_info: Option<&'a SuperResolutionDispatchExposureInfo<'a>>,
+    pub exposure_info: Option<&'a SuperResolutionDispatchExposureInfo<'a, 'view>>,
     /// G-buffer information, or `None` if the engine does not denoise.
-    pub denoise_info: Option<&'a SuperResolutionDispatchDenoiseInfo<'a>>,
+    pub denoise_info: Option<&'a SuperResolutionDispatchDenoiseInfo<'a, 'view>>,
     /// Offset into the bound resource descriptor heap reserved for the
     /// session's internal descriptors.
     pub resource_descriptor_heap_offset: vk::DeviceSize,
@@ -730,7 +732,7 @@ pub struct SuperResolutionDispatchInfo<'a> {
     pub sampler_descriptor_heap_offset: vk::DeviceSize,
 }
 
-pub trait SuperResolutionCommandEncoder {
+pub trait SuperResolutionCommandEncoder<'encoder> {
     /// Records initialization of a super resolution `session` into the command
     /// buffer.
     fn initialize_super_resolution_session(&mut self, session: &SuperResolutionSession);
@@ -739,11 +741,13 @@ pub trait SuperResolutionCommandEncoder {
     fn dispatch_super_resolution(
         &mut self,
         session: &SuperResolutionSession,
-        dispatch_info: &SuperResolutionDispatchInfo,
+        dispatch_info: &SuperResolutionDispatchInfo<'_, 'encoder>,
     );
 }
 
-impl SuperResolutionCommandEncoder for pumicite::command::CommandEncoder<'_> {
+impl<'encoder> SuperResolutionCommandEncoder<'encoder>
+    for pumicite::command::CommandEncoder<'encoder>
+{
     fn initialize_super_resolution_session(&mut self, session: &SuperResolutionSession) {
         match &session.backend {
             #[cfg(target_vendor = "apple")]
@@ -758,7 +762,7 @@ impl SuperResolutionCommandEncoder for pumicite::command::CommandEncoder<'_> {
     fn dispatch_super_resolution(
         &mut self,
         session: &SuperResolutionSession,
-        dispatch_info: &SuperResolutionDispatchInfo,
+        dispatch_info: &SuperResolutionDispatchInfo<'_, 'encoder>,
     ) {
         match &session.backend {
             #[cfg(target_vendor = "apple")]

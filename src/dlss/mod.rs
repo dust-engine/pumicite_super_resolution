@@ -914,49 +914,32 @@ pub(crate) fn initialize_session(encoder: &mut CommandEncoder, session: &DlssSes
     }
 }
 
-/// Creates a transient image view from `image_info`'s create-info and builds an
-/// NGX resource over it. The view is destroyed once the command buffer
-/// completes (via [`CommandEncoder::retain`]).
-///
-/// # Safety
-/// `image_info.view` must be a valid image-view create-info whose image stays
-/// alive until the recorded command buffer finishes.
-unsafe fn make_resource(
-    encoder: &mut CommandEncoder,
+fn make_resource(
     image_info: &SuperResolutionImageInfo,
     width: u32,
     height: u32,
     read_write: bool,
 ) -> Resource {
-    let device = encoder.device().clone();
-    // SAFETY: the caller guarantees a valid create-info; the view lives until
-    // the retained guard drops on GPU completion.
-    let view = unsafe { device.create_image_view(image_info.view, None) }
-        .expect("DLSS: failed to create transient image view");
-    encoder.retain(ViewGuard {
-        device: device.clone(),
-        view,
-    });
     Resource::image_view(
-        view,
-        image_info.view.image,
-        image_info.view.subresource_range,
-        image_info.view.format,
+        image_info.view.vk_handle(),
+        image_info.image.vk_handle(),
+        subresource_range(image_info),
+        image_info.view.format(),
         width,
         height,
         read_write,
     )
 }
 
-/// Destroys a transient image view when the owning command buffer completes.
-struct ViewGuard {
-    device: Device,
-    view: vk::ImageView,
-}
-
-impl Drop for ViewGuard {
-    fn drop(&mut self) {
-        unsafe { self.device.destroy_image_view(self.view, None) };
+fn subresource_range(image_info: &SuperResolutionImageInfo) -> vk::ImageSubresourceRange {
+    let mips = image_info.view.mip_levels();
+    let layers = image_info.view.array_layers();
+    vk::ImageSubresourceRange {
+        aspect_mask: image_info.image.aspects(),
+        base_mip_level: mips.start,
+        level_count: mips.end - mips.start,
+        base_array_layer: layers.start,
+        layer_count: layers.end - layers.start,
     }
 }
 
@@ -987,63 +970,29 @@ pub(crate) fn dispatch(
     // SAFETY: every image create-info originates from the caller's live G-buffer
     // resources, which must outlive this command buffer's GPU execution.
     unsafe {
-        let mut color = make_resource(
-            encoder,
-            info.source_image_info,
-            src.width,
-            src.height,
-            false,
-        );
-        let mut output = make_resource(
-            encoder,
-            info.destination_image_info,
-            dst.width,
-            dst.height,
-            true,
-        );
+        let mut color = make_resource(info.source_image_info, src.width, src.height, false);
+        let mut output = make_resource(info.destination_image_info, dst.width, dst.height, true);
         let mut depth = info
             .source_depth_image_info
-            .map(|d| make_resource(encoder, d, src.width, src.height, false));
+            .map(|d| make_resource(d, src.width, src.height, false));
         let mut motion = info
             .motion_info
             .and_then(|m| m.motion_vectors_image_info)
-            .map(|mv| make_resource(encoder, mv, src.width, src.height, false));
-        let mut diffuse = denoise.map(|d| {
-            make_resource(
-                encoder,
-                d.diffuse_albedo_image_info,
-                src.width,
-                src.height,
-                false,
-            )
-        });
-        let mut specular = denoise.map(|d| {
-            make_resource(
-                encoder,
-                d.specular_albedo_image_info,
-                src.width,
-                src.height,
-                false,
-            )
-        });
-        let mut normals = denoise
-            .map(|d| make_resource(encoder, d.normal_image_info, src.width, src.height, false));
+            .map(|mv| make_resource(mv, src.width, src.height, false));
+        let mut diffuse =
+            denoise.map(|d| make_resource(d.diffuse_albedo_image_info, src.width, src.height, false));
+        let mut specular = denoise
+            .map(|d| make_resource(d.specular_albedo_image_info, src.width, src.height, false));
+        let mut normals =
+            denoise.map(|d| make_resource(d.normal_image_info, src.width, src.height, false));
         let mut roughness = if packed_roughness {
             None
         } else {
-            denoise.map(|d| {
-                make_resource(
-                    encoder,
-                    d.roughness_image_info,
-                    src.width,
-                    src.height,
-                    false,
-                )
-            })
+            denoise.map(|d| make_resource(d.roughness_image_info, src.width, src.height, false))
         };
         let mut specular_hit = denoise
             .and_then(|d| d.specular_hit_distance_image_info)
-            .map(|r| make_resource(encoder, r, src.width, src.height, false));
+            .map(|r| make_resource(r, src.width, src.height, false));
         let mut world_to_view = denoise.map(|d| flatten(d.world_to_view_matrix));
         let mut view_to_clip = denoise.map(|d| flatten(d.view_to_clip_matrix));
 
