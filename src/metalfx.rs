@@ -362,7 +362,9 @@ unsafe impl Sync for Scaler {}
 const VK_TO_MTL_FORMAT: &[(vk::Format, MTLPixelFormat)] = &[
     (vk::Format::R16G16B16A16_SFLOAT, MTLPixelFormat::RGBA16Float),
     (vk::Format::R8G8B8A8_UNORM, MTLPixelFormat::RGBA8Unorm),
+    (vk::Format::R8G8B8A8_SRGB, MTLPixelFormat::RGBA8Unorm_sRGB),
     (vk::Format::B8G8R8A8_UNORM, MTLPixelFormat::BGRA8Unorm),
+    (vk::Format::B8G8R8A8_SRGB, MTLPixelFormat::BGRA8Unorm_sRGB),
     (
         vk::Format::A2B10G10R10_UNORM_PACK32,
         MTLPixelFormat::RGB10A2Unorm,
@@ -962,11 +964,13 @@ unsafe fn set_denoise_matrices(
     struct SimdFloat4x4 {
         columns: [float32x4_t; 4],
     }
-    // The encoding is metadata only; the call uses the Rust type's ABI.
     unsafe impl objc2::encode::Encode for SimdFloat4x4 {
-        const ENCODING: objc2::encode::Encoding = objc2::encode::Encoding::Array(
-            4,
-            &objc2::encode::Encoding::Array(4, &objc2::encode::Encoding::Float),
+        const ENCODING: objc2::encode::Encoding = objc2::encode::Encoding::Struct(
+            "?",
+            &[objc2::encode::Encoding::Array(
+                4,
+                &objc2::encode::Encoding::None,
+            )],
         );
     }
 
