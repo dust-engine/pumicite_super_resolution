@@ -993,6 +993,11 @@ pub(crate) fn dispatch(
         let mut specular_hit = denoise
             .and_then(|d| d.specular_hit_distance_image_info)
             .map(|r| make_resource(r, src.width, src.height, false));
+        // 1x1 exposure-scale texture; NGX samples only the first channel.
+        let mut exposure_scale = info
+            .exposure_info
+            .and_then(|e| e.exposure_scale_image_info)
+            .map(|e| make_resource(e, 1, 1, false));
         let mut world_to_view = denoise.map(|d| flatten(d.world_to_view_matrix));
         let mut view_to_clip = denoise.map(|d| flatten(d.view_to_clip_matrix));
 
@@ -1019,6 +1024,15 @@ pub(crate) fn dispatch(
         }
         if let Some(h) = specular_hit.as_mut() {
             eval.pInSpecularHitDistance = h.as_mut_ptr();
+        }
+        if let Some(e) = exposure_scale.as_mut() {
+            eval.pInExposureTexture = e.as_mut_ptr();
+        }
+        // When absent, the fields stay zeroed; the NGX eval helper coalesces
+        // 0.0 pre-exposure / exposure-scale to their 1.0 defaults.
+        if let Some(e) = info.exposure_info {
+            eval.InPreExposure = e.pre_exposure;
+            eval.InExposureScale = e.exposure_scale_uniform;
         }
         if let Some(m) = world_to_view.as_mut() {
             eval.pInWorldToViewMatrix = m.as_mut_ptr();
